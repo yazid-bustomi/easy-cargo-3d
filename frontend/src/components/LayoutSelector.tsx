@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { usePlannerStore, PRESET_CONTAINERS, ContainerType } from '../store/plannerStore';
 
 export function LayoutSelector() {
-  const { setProjectConfig } = usePlannerStore();
+  const { setProjectConfig, aiApiKey, setAiApiKey, aiProvider, setAiProvider } = usePlannerStore();
 
   const [projectName, setProjectName] = useState('');
   const [selectedPreset, setSelectedPreset] = useState<number>(PRESET_CONTAINERS[0].id);
@@ -177,6 +177,47 @@ export function LayoutSelector() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* AI API Key Setup */}
+        <div className="mb-6 space-y-3 bg-gray-800/50 p-4 rounded-xl border border-gray-700/50">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              AI Provider (For AI Auto-Pack)
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setAiProvider('gemini')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  aiProvider === 'gemini'
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                    : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-750'
+                }`}
+              >
+                Gemini (Free)
+              </button>
+              <button
+                onClick={() => setAiProvider('openai')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  aiProvider === 'openai'
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                    : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-750'
+                }`}
+              >
+                OpenAI
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">API Key</label>
+            <input
+              type="password"
+              value={aiApiKey}
+              onChange={(e) => setAiApiKey(e.target.value)}
+              placeholder={`Enter ${aiProvider === 'gemini' ? 'Gemini' : 'OpenAI'} API Key...`}
+              className="w-full px-3 py-2 bg-gray-900/80 border border-gray-600/50 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+            />
+          </div>
         </div>
 
         {/* Save Button */}

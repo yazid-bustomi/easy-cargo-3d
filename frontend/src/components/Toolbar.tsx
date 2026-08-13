@@ -7,6 +7,8 @@ import {
   Zap,
   ArrowLeft,
   FileText,
+  Bot,
+  X
 } from 'lucide-react';
 import { usePlannerStore } from '../store/plannerStore';
 import { generatePDFReport, imageUrlToBase64 } from '../utils/reportGenerator';
@@ -26,9 +28,13 @@ export function Toolbar() {
     autoPackAll,
     getLayoutStats,
     setCameraView,
+    aiAutoPack,
+    aiApiKey,
   } = usePlannerStore();
 
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -97,8 +103,14 @@ export function Toolbar() {
     }
   };
 
+  const handleAiPackConfirm = async () => {
+    setIsAiModalOpen(false);
+    await aiAutoPack(aiPrompt);
+  };
+
   return (
-    <div className="h-12 bg-gray-900/95 backdrop-blur border-b border-gray-700/50 flex items-center justify-between px-4 gap-3 flex-shrink-0">
+    <>
+      <div className="h-12 bg-gray-900/95 backdrop-blur border-b border-gray-700/50 flex items-center justify-between px-4 gap-3 flex-shrink-0">
       {/* Left: Back + Project name */}
       <div className="flex items-center gap-3">
         <button
@@ -138,7 +150,6 @@ export function Toolbar() {
 
         <div className="w-px h-5 bg-gray-700 mx-1.5" />
 
-        {/* Auto Pack Button */}
         <button
           onClick={handleAutoPack}
           disabled={isAutoPackLoading || products.length === 0}
@@ -147,6 +158,27 @@ export function Toolbar() {
         >
           <Zap className="w-3.5 h-3.5" />
           Auto Pack
+        </button>
+
+        {/* AI Pack Button */}
+        <button
+          onClick={() => {
+            if (!aiApiKey) {
+              alert('Silahkan atur AI API Key di halaman Setup terlebih dahulu.');
+              return;
+            }
+            if (products.length === 0) {
+              alert('Tambahkan product terlebih dahulu!');
+              return;
+            }
+            setIsAiModalOpen(true);
+          }}
+          disabled={isAutoPackLoading || products.length === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-purple-600/20"
+          title="AI Pack — susun otomatis menggunakan AI (Gemini/OpenAI)"
+        >
+          <Bot className="w-3.5 h-3.5" />
+          AI Pack
         </button>
 
         <div className="w-px h-5 bg-gray-700 mx-1.5" />
@@ -198,5 +230,50 @@ export function Toolbar() {
         </div>
       </div>
     </div>
+
+    {/* AI Pack Modal */}
+    {isAiModalOpen && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[400px] shadow-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Bot className="w-5 h-5 text-purple-400" />
+              AI Auto-Pack
+            </h3>
+            <button onClick={() => setIsAiModalOpen(false)} className="text-gray-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Custom Instructions (Optional)
+            </label>
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="e.g. Tables with thin legs must go on top. Do not stack fragile items."
+              className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-1 focus:ring-purple-500 focus:border-purple-500 resize-none"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setIsAiModalOpen(false)}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAiPackConfirm}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-purple-600/20"
+            >
+              Start AI Packing
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
+import { aiPackContainer } from '../utils/aiPackService';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -432,6 +433,7 @@ export interface PlannerState {
   setAiApiKey: (key: string) => void;
   setAiProvider: (provider: 'gemini' | 'openai') => void;
   autoPackAll: () => void;
+  aiAutoPack: (customPrompt?: string) => Promise<void>;
   getLayoutStats: () => LayoutStats;
 }
 
@@ -929,6 +931,97 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         set({ isAutoPackLoading: false });
       }
     }, 50);
+  },
+
+  aiAutoPack: async (customPrompt: string = '') => {
+    const state = get();
+    const container = state.projectConfig?.containerType;
+    if (!container || state.products.length === 0) return;
+    if (!state.aiApiKey) {
+      alert('Please set your AI API Key first.');
+      return;
+    }
+
+    set({ isAutoPackLoading: true });
+
+    try {
+      const packItems = state.products.map(p => ({
+        productId: p.id,
+        name: p.name,
+        group: p.group,
+        length: p.length_cm,
+        width: p.width_cm,
+        height: p.height_cm,
+        weight: p.weight_kg,
+        thisSideUp: p.this_side_up,
+        stackable: p.stackable,
+        mustBeOnTop: p.must_be_on_top,
+        canBeLaidDown: p.can_be_laid_down,
+        qty: p.qty,
+        colorHex: p.color_hex,
+      }));
+
+      const result = await aiPackContainer(
+        state.aiProvider,
+        state.aiApiKey,
+        {
+          length: container.length_cm,
+          width: container.width_cm,
+          height: container.height_cm,
+          maxPayloadKg: container.max_payload_kg,
+        },
+        packItems,
+        customPrompt
+      );
+
+      const newLayoutItems: LayoutItem[] = result.placed.map((p: any) => {
+        const product = state.products.find(prod => prod.id === p.productId);
+        return {
+          id: genId(),
+          product_id: p.productId,
+          product_name: product?.name || 'Unknown',
+          instance_no: p.instanceNo,
+          pos_x: p.x,
+          pos_y: p.y,
+          pos_z: p.z,
+          rot_x: p.rotX,
+          rot_y: p.rotY,
+          rot_z: p.rotZ,
+          length_cm: p.length,
+          width_cm: p.width,
+          height_cm: p.height,
+          weight_kg: product?.weight_kg || 0,
+          color_hex: product?.color_hex || '#fde047',
+          this_side_up: product?.this_side_up || false,
+        };
+      });
+
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      newHistory.push(JSON.parse(JSON.stringify(newLayoutItems)));
+
+      set({
+        layoutItems: newLayoutItems,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+        isAutoPackLoading: false,
+        selectedItemId: null,
+        selectedGroupIds: [],
+      });
+
+      if (result.unplaced && result.unplaced.length > 0) {
+        const unplacedNames = result.unplaced.map((u: any) => {
+          const prod = state.products.find(prod => prod.id === u.productId);
+          return `${prod?.name || u.productId} (${u.qty} pcs)`;
+        }).join(', ');
+        alert(`AI Pack selesai!\n\nTidak muat: ${unplacedNames}`);
+      } else {
+        alert('AI Pack berhasil mengatur semua barang!');
+      }
+    } catch (error: any) {
+      console.error('AI Auto Pack error:', error);
+      alert('Gagal melakukan AI auto pack: ' + error.message);
+      set({ isAutoPackLoading: false });
+    }
   },
 
   getLayoutStats: () => {

@@ -40,15 +40,15 @@ const LayoutItem = sequelize.define(
       defaultValue: 0,
     },
     rot_x: {
-      type: DataTypes.SMALLINT,
+      type: DataTypes.INTEGER,
       defaultValue: 0,
     },
     rot_y: {
-      type: DataTypes.SMALLINT,
+      type: DataTypes.INTEGER,
       defaultValue: 0,
     },
     rot_z: {
-      type: DataTypes.SMALLINT,
+      type: DataTypes.INTEGER,
       defaultValue: 0,
     },
     stack_level: {

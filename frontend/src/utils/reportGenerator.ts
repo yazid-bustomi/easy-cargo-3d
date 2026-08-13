@@ -1,11 +1,13 @@
 /**
  * PDF Report Generator — EasyCargo-style
  * -----------------------------------------------------------------------
- * Generates a 2-page PDF report matching the EasyCargo reference:
+ * Generates a 2-page PDF report using jsPDF + html2canvas:
  *   Page 1: Right side view + product table
  *   Page 2: Left side view + product table
  * -----------------------------------------------------------------------
  */
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { Product, LayoutItem, ProjectConfig, LayoutStats } from '../store/plannerStore';
 
 interface ReportData {
@@ -20,14 +22,6 @@ interface ReportData {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-/** Build the restriction icon SVG (up arrow) */
-function getRestrictionIcon(active: boolean): string {
-  const color = active ? '#000000' : '#9ca3af';
-  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 4L6 12H9.5V20H14.5V12H18L12 4Z" fill="${color}" />
-  </svg>`;
 }
 
 /** Group layoutItems by product and compute aggregate data */
@@ -49,21 +43,27 @@ function getProductSummary(products: Product[], layoutItems: LayoutItem[]) {
         thisSideUp: p.this_side_up,
       };
     })
-    .filter(p => p.pcs > 0); // only show products that are actually placed
+    .filter(p => p.pcs > 0);
 }
 
-function buildStatsTable(stats: LayoutStats, container: any): string {
+function buildContainerInfoHTML(container: any, stats: LayoutStats): string {
   const containerVolM3 = (container.length_cm * container.width_cm * container.height_cm / 1_000_000).toFixed(2);
   const usedVolM3 = (stats.usedVolume / 1_000_000).toFixed(2);
 
   return `
+    <div class="container-detail">
+      <div class="detail-row"><span class="detail-label">Container:</span> <span class="detail-value">${escapeHtml(container.name)}</span></div>
+      <div class="detail-row"><span class="detail-label">Dimensions:</span> <span class="detail-value">${container.length_cm} × ${container.width_cm} × ${container.height_cm} cm</span></div>
+      <div class="detail-row"><span class="detail-label">Max Payload:</span> <span class="detail-value">${container.max_payload_kg.toLocaleString()} kg</span></div>
+      <div class="detail-row"><span class="detail-label">Volume:</span> <span class="detail-value">${containerVolM3} m³</span></div>
+    </div>
     <table class="stats-table">
       <thead>
         <tr>
           <th></th>
-          <th>Weight:</th>
-          <th>Volume:</th>
-          <th>Free meters:</th>
+          <th>Weight</th>
+          <th>Volume</th>
+          <th>Free meters</th>
         </tr>
       </thead>
       <tbody>
@@ -105,7 +105,6 @@ function buildProductTable(productSummary: ReturnType<typeof getProductSummary>)
     </tr>
   `).join('');
 
-  // Totals
   const totalPcs = productSummary.reduce((s, p) => s + p.pcs, 0);
   const totalWt = Math.round(productSummary.reduce((s, p) => s + p.totalWeight, 0) * 100) / 100;
 
@@ -115,11 +114,11 @@ function buildProductTable(productSummary: ReturnType<typeof getProductSummary>)
         <tr>
           <th class="group-th">Group</th>
           <th class="desc-th">Description</th>
-          <th class="num-th">Pieces</th>
+          <th class="num-th">Pcs</th>
           <th class="num-th">Length</th>
           <th class="num-th">Width</th>
           <th class="num-th">Height</th>
-          <th class="num-th">Total weight</th>
+          <th class="num-th">Tot. Weight</th>
         </tr>
       </thead>
       <tbody>
@@ -161,13 +160,13 @@ function buildPage(data: ReportData, viewImage: string, viewLabel: string): stri
         </div>
       </div>
 
-      <!-- Stats -->
-      ${buildStatsTable(stats, container)}
+      <!-- Container Info + Stats (left column style) -->
+      ${buildContainerInfoHTML(container, stats)}
 
       <!-- Product Table -->
       ${buildProductTable(productSummary)}
 
-      <!-- 3D View Image (Moved to bottom) -->
+      <!-- 3D View Image -->
       <div class="view-container">
         <div class="view-label">${viewLabel}</div>
         <img src="${viewImage}" class="view-image" alt="${viewLabel}" />
@@ -195,12 +194,13 @@ const CSS = `
   }
 
   .page {
-    width: 100%;
-    padding: 20px 28px;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 18px 24px;
     page-break-after: always;
-    min-height: 100vh;
     display: flex;
     flex-direction: column;
+    background: #fff;
   }
 
   .page:last-child {
@@ -214,7 +214,7 @@ const CSS = `
     align-items: center;
     border-bottom: 2px solid #1f2937;
     padding-bottom: 10px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
 
   .header-left { display: flex; align-items: center; }
@@ -240,14 +240,40 @@ const CSS = `
     margin-top: 2px;
   }
 
+  /* Container Detail */
+  .container-detail {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+  }
+
+  .detail-row {
+    font-size: 10px;
+    padding: 2px 0;
+  }
+
+  .detail-label {
+    font-weight: 600;
+    color: #4b5563;
+  }
+
+  .detail-value {
+    color: #1f2937;
+  }
+
   /* 3D View */
   .view-container {
     position: relative;
-    margin-bottom: 10px;
+    margin-top: 8px;
+    margin-bottom: 8px;
     background: #e5e7eb;
     border-radius: 4px;
     overflow: hidden;
     text-align: center;
+    flex: 1;
+    min-height: 200px;
   }
 
   .view-label {
@@ -260,11 +286,13 @@ const CSS = `
     background: rgba(255,255,255,0.8);
     padding: 2px 8px;
     border-radius: 3px;
+    z-index: 1;
   }
 
   .view-image {
     width: 100%;
-    max-height: 320px;
+    height: 100%;
+    max-height: 340px;
     object-fit: contain;
   }
 
@@ -272,7 +300,7 @@ const CSS = `
   .stats-table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     font-size: 10px;
   }
 
@@ -304,12 +332,12 @@ const CSS = `
   .product-table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     font-size: 10px;
   }
 
   .product-table th, .product-table td {
-    padding: 5px 6px;
+    padding: 4px 6px;
     border: 1px solid #d1d5db;
     text-align: left;
   }
@@ -322,10 +350,9 @@ const CSS = `
     text-transform: uppercase;
   }
 
-  .group-th { width: 55px; text-align: center; }
+  .group-th { width: 50px; text-align: center; }
   .desc-th { }
-  .num-th { width: 60px; text-align: center; }
-  .icon-th { width: 60px; text-align: center; }
+  .num-th { width: 55px; text-align: center; }
 
   .group-cell { text-align: center; vertical-align: middle; }
 
@@ -341,7 +368,6 @@ const CSS = `
 
   .desc-cell { text-align: left; }
   .num-cell { text-align: center; }
-  .icon-cell-center { text-align: center; vertical-align: middle; }
 
   .product-table .total-row td {
     border-top: 2px solid #374151;
@@ -353,7 +379,7 @@ const CSS = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-top: 8px;
+    padding-top: 6px;
     border-top: 1px solid #d1d5db;
     font-size: 9px;
     color: #9ca3af;
@@ -362,50 +388,70 @@ const CSS = `
 `;
 
 export async function generatePDFReport(data: ReportData): Promise<void> {
-  const page1 = buildPage(data, data.rightViewImage, 'Right Side View');
-  const page2 = buildPage(data, data.leftViewImage, 'Left Side View');
+  const page1Html = buildPage(data, data.rightViewImage, 'Right Side View');
+  const page2Html = buildPage(data, data.leftViewImage, 'Left Side View');
 
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>${CSS}</style>
-      </head>
-      <body>
-        ${page1}
-        ${page2}
-      </body>
-    </html>
-  `;
-
-  // Create wrapper in DOM to ensure html2canvas can read it properly
+  // Create off-screen wrapper for rendering
   const wrapper = document.createElement('div');
-  wrapper.innerHTML = html;
   wrapper.style.position = 'fixed';
   wrapper.style.top = '0';
-  wrapper.style.left = '20000px'; // Way off-screen but not hidden
+  wrapper.style.left = '-9999px';
   wrapper.style.width = '210mm';
+  wrapper.style.background = '#fff';
   wrapper.style.zIndex = '-9999';
   document.body.appendChild(wrapper);
 
   try {
-    // @ts-ignore - html2pdf.js doesn't have great TS types
-    const html2pdf = (await import('html2pdf.js')).default;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = 210;
+    const pageHeight = 297;
 
-    const opt = {
-      margin: 0,
-      filename: `${data.projectConfig.name} - EasyCargo report.pdf`,
-      image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
-      pagebreak: { mode: ['css'] },
-    };
+    for (let i = 0; i < 2; i++) {
+      const pageHtml = i === 0 ? page1Html : page2Html;
 
-    // Give it a tiny moment to ensure images (even base64) are rendered in the DOM
-    await new Promise(r => setTimeout(r, 100));
+      // Set wrapper content with CSS
+      wrapper.innerHTML = `<style>${CSS}</style>${pageHtml}`;
 
-    await html2pdf().set(opt).from(wrapper).save();
+      // Wait for images (logo + 3D capture) to load
+      const images = wrapper.querySelectorAll('img');
+      await Promise.all(Array.from(images).map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        });
+      }));
+
+      // Small delay for font loading
+      await new Promise(r => setTimeout(r, 300));
+
+      const canvas = await html2canvas(wrapper, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: wrapper.scrollWidth,
+        height: wrapper.scrollHeight,
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+      // Calculate dimensions to fit A4
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
+
+      if (i > 0) pdf.addPage();
+
+      // If the image is taller than the page, scale it down
+      if (imgHeight > pageHeight) {
+        const scaledWidth = (canvas.width * pageHeight) / canvas.height;
+        pdf.addImage(imgData, 'JPEG', (pageWidth - scaledWidth) / 2, 0, scaledWidth, pageHeight);
+      } else {
+        pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
+      }
+    }
+
+    pdf.save(`${data.projectConfig.name} - EasyCargo report.pdf`);
   } catch (err) {
     console.error('PDF Generation failed', err);
     throw err;

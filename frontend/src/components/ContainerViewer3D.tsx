@@ -11,23 +11,42 @@ import {
 // ── Scale factor ─────────────────────────────────────────────────────
 const S = 0.01;
 
+// ── PDF Capture Camera Positions ─────────────────────────────────────
+// Adjust these multipliers to change the PDF screenshot angle.
+// x, y, z are multiplied by container l (length), h (height), w (width).
+// Right view: camera is on the left side looking right, elevated.
+// Left view: camera is on the right side looking left, elevated.
+const CAPTURE_CAM_RIGHT = { x: 0.15, y: 3.5, z: 2.8 };
+const CAPTURE_CAM_LEFT = { x: 0.20, y: 3.2, z: 2.2 };
+
 // ── Texture Cache ────────────────────────────────────────────────────
 const textureCache: Record<string, THREE.CanvasTexture> = {};
 
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const words = text.split(' ');
+  const explicitLines = text.split('//');
   const lines: string[] = [];
-  let current = words[0] || '';
-  for (let i = 1; i < words.length; i++) {
-    const test = current + ' ' + words[i];
-    if (ctx.measureText(test).width < maxWidth) {
-      current = test;
-    } else {
-      lines.push(current);
-      current = words[i];
+
+  for (let j = 0; j < explicitLines.length; j++) {
+    let part = explicitLines[j].trim();
+    if (j < explicitLines.length - 1) {
+      part += ' //';
     }
+
+    if (part === '') continue;
+
+    const words = part.split(' ');
+    let current = words[0] || '';
+    for (let i = 1; i < words.length; i++) {
+      const test = current + ' ' + words[i];
+      if (ctx.measureText(test).width < maxWidth) {
+        current = test;
+      } else {
+        lines.push(current);
+        current = words[i];
+      }
+    }
+    lines.push(current);
   }
-  lines.push(current);
   return lines;
 }
 
@@ -42,7 +61,7 @@ export function getLabelTexture(label: string, w: number, h: number): THREE.Canv
   canvas.width = cw;
   canvas.height = ch;
   const ctx = canvas.getContext('2d')!;
-  
+
   let minSize = 10;
   let maxSize = Math.min(cw, ch);
   let bestSize = minSize;
@@ -51,11 +70,11 @@ export function getLabelTexture(label: string, w: number, h: number): THREE.Canv
   for (let i = 0; i < 20; i++) {
     const mid = (minSize + maxSize) / 2;
     ctx.font = `bold ${mid}px Arial, sans-serif`;
-    
+
     const lines = wrapText(ctx, label, cw * 0.9);
     const lh = mid * 1.1;
     const totalHeight = lines.length * lh;
-    
+
     let fitsWidth = true;
     for (const l of lines) {
       if (ctx.measureText(l).width > cw * 0.95) {
@@ -63,7 +82,7 @@ export function getLabelTexture(label: string, w: number, h: number): THREE.Canv
         break;
       }
     }
-    
+
     if (totalHeight <= ch * 0.9 && fitsWidth) {
       bestSize = mid;
       bestLines = lines;
@@ -78,19 +97,19 @@ export function getLabelTexture(label: string, w: number, h: number): THREE.Canv
   ctx.font = `bold ${bestSize}px Arial, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  
+
   const lh = bestSize * 1.1;
   const totalTextHeight = bestLines.length * lh;
   const extraSpace = ch - totalTextHeight;
   const spacing = bestLines.length > 1 ? extraSpace / (bestLines.length + 1) : 0;
-  
+
   let currentY = bestLines.length > 1 ? spacing + (lh / 2) : ch / 2;
-  
+
   bestLines.forEach((line) => {
     ctx.fillText(line, cw * 0.05, currentY);
     if (bestLines.length > 1) currentY += lh + spacing;
   });
-  
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 16;
   textureCache[key] = tex;
@@ -104,7 +123,7 @@ export function getUpArrowTexture(): THREE.CanvasTexture {
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, 512, 512);
-  
+
   // Draw an up arrow
   ctx.fillStyle = '#000000';
   ctx.beginPath();
@@ -117,7 +136,7 @@ export function getUpArrowTexture(): THREE.CanvasTexture {
   ctx.lineTo(362, 250);
   ctx.closePath();
   ctx.fill();
-  
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 16;
   textureCache['__up_arrow'] = tex;
@@ -129,27 +148,27 @@ function ContainerBox({ length, width, height }: { length: number; width: number
   const l = length * S, w = width * S, h = height * S;
   return (
     <group>
-      <mesh position={[l/2, 0, w/2]} rotation={[-Math.PI/2, 0, 0]} receiveShadow>
+      <mesh position={[l / 2, 0, w / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[l, w]} />
         <meshStandardMaterial color="#8C8980" side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[0, h/2, w/2]} rotation={[0, Math.PI/2, 0]} receiveShadow>
+      <mesh position={[0, h / 2, w / 2]} rotation={[0, Math.PI / 2, 0]} receiveShadow>
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial color="#D4D3D1" side={THREE.FrontSide} />
       </mesh>
-      <mesh position={[l, h/2, w/2]} rotation={[0, -Math.PI/2, 0]} receiveShadow>
+      <mesh position={[l, h / 2, w / 2]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial color="#D4D3D1" side={THREE.FrontSide} />
       </mesh>
-      <mesh position={[l/2, h/2, 0]}>
+      <mesh position={[l / 2, h / 2, 0]}>
         <planeGeometry args={[l, h]} />
         <meshStandardMaterial color="#BDB8B3" side={THREE.FrontSide} />
       </mesh>
-      <mesh position={[l/2, h/2, w]} rotation={[0, Math.PI, 0]}>
+      <mesh position={[l / 2, h / 2, w]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[l, h]} />
         <meshStandardMaterial color="#BDB8B3" side={THREE.FrontSide} />
       </mesh>
-      <lineSegments position={[l/2, h/2, w/2]}>
+      <lineSegments position={[l / 2, h / 2, w / 2]}>
         <edgesGeometry args={[new THREE.BoxGeometry(l, h, w)]} />
         <lineBasicMaterial color="#4b5563" />
       </lineSegments>
@@ -160,11 +179,11 @@ function ContainerBox({ length, width, height }: { length: number; width: number
 // ── Placement Zones (Green indicators) ───────────────────────────────
 function PlacementZones({ zones }: { zones: PlacementZone[] }) {
   if (zones.length === 0) return null;
-  
+
   return (
     <group>
       {zones.map((zone, i) => (
-        <mesh key={i} position={[(zone.x * S) + (zone.l*S)/2, (zone.y * S) + 0.005, (zone.z * S) + (zone.w*S)/2]} rotation={[-Math.PI/2, 0, 0]}>
+        <mesh key={i} position={[(zone.x * S) + (zone.l * S) / 2, (zone.y * S) + 0.005, (zone.z * S) + (zone.w * S) / 2]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[zone.l * S, zone.w * S]} />
           <meshBasicMaterial color="#22c55e" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
         </mesh>
@@ -199,15 +218,15 @@ function ProductBox({ item, isSelected, isInGroup, isHovered, onSelect, onHover,
   const darkColor = darkenColor(baseColor, 0.4);
   const displayColor = isSelected ? '#4ade80' : isInGroup ? '#86efac' : isHovered ? '#fef08a' : baseColor;
   const outlineColor = isSelected ? '#16a34a' : isInGroup ? '#22c55e' : '';
-  
+
   const texTop = useMemo(() => getLabelTexture(item.product_name, origL * 0.9, origW * 0.9), [item.product_name, origL, origW]);
   const texFront = useMemo(() => getLabelTexture(item.product_name, origL * 0.9, Math.min(origH * 0.5, origL * 0.45)), [item.product_name, origL, origH]);
   const texSide = useMemo(() => getLabelTexture(item.product_name, origW * 0.9, Math.min(origH * 0.5, origW * 0.45)), [item.product_name, origW, origH]);
 
   return (
-    <group position={[x + l/2, y + h/2, z + w/2]}>
+    <group position={[x + l / 2, y + h / 2, z + w / 2]}>
       {/* Rotated Physical Model */}
-      <group rotation={[item.rot_x * Math.PI/180, item.rot_y * Math.PI/180, item.rot_z * Math.PI/180]}>
+      <group rotation={[item.rot_x * Math.PI / 180, item.rot_y * Math.PI / 180, item.rot_z * Math.PI / 180]}>
         <mesh
           onClick={(e) => { e.stopPropagation(); onSelect(item); }}
           onPointerEnter={() => onHover(item)}
@@ -220,29 +239,29 @@ function ProductBox({ item, isSelected, isInGroup, isHovered, onSelect, onHover,
         </mesh>
 
         {/* Dark bottom face */}
-        <mesh position={[0, -origH/2 + 0.001, 0]} rotation={[-Math.PI/2, 0, 0]}>
+        <mesh position={[0, -origH / 2 + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[origL, origW]} />
           <meshBasicMaterial color="#374151" />
         </mesh>
 
         {/* Labels */}
-        <mesh position={[0, origH/2 + 0.001, 0]} rotation={[-Math.PI/2, 0, 0]}>
+        <mesh position={[0, origH / 2 + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[origL * 0.9, origW * 0.9]} />
           <meshBasicMaterial map={texTop} transparent depthWrite={false} />
         </mesh>
-        <mesh position={[0, 0, origW/2 + 0.001]}>
+        <mesh position={[0, 0, origW / 2 + 0.001]}>
           <planeGeometry args={[origL * 0.9, Math.min(origH * 0.5, origL * 0.45)]} />
           <meshBasicMaterial map={texFront} transparent depthWrite={false} />
         </mesh>
-        <mesh position={[0, 0, -origW/2 - 0.001]} rotation={[0, Math.PI, 0]}>
+        <mesh position={[0, 0, -origW / 2 - 0.001]} rotation={[0, Math.PI, 0]}>
           <planeGeometry args={[origL * 0.9, Math.min(origH * 0.5, origL * 0.45)]} />
           <meshBasicMaterial map={texFront} transparent depthWrite={false} />
         </mesh>
-        <mesh position={[-origL/2 - 0.001, 0, 0]} rotation={[0, -Math.PI/2, 0]}>
+        <mesh position={[-origL / 2 - 0.001, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
           <planeGeometry args={[origW * 0.9, Math.min(origH * 0.5, origW * 0.45)]} />
           <meshBasicMaterial map={texSide} transparent depthWrite={false} />
         </mesh>
-        <mesh position={[origL/2 + 0.001, 0, 0]} rotation={[0, Math.PI/2, 0]}>
+        <mesh position={[origL / 2 + 0.001, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
           <planeGeometry args={[origW * 0.9, Math.min(origH * 0.5, origW * 0.45)]} />
           <meshBasicMaterial map={texSide} transparent depthWrite={false} />
         </mesh>
@@ -250,20 +269,20 @@ function ProductBox({ item, isSelected, isInGroup, isHovered, onSelect, onHover,
         {/* This Side Up Icons */}
         {item.this_side_up && (
           <group>
-            <mesh position={[0, origH/4, origW/2 + 0.002]}>
-              <planeGeometry args={[Math.min(origL, origH)*0.3, Math.min(origL, origH)*0.3]} />
+            <mesh position={[0, origH / 4, origW / 2 + 0.002]}>
+              <planeGeometry args={[Math.min(origL, origH) * 0.3, Math.min(origL, origH) * 0.3]} />
               <meshBasicMaterial map={getUpArrowTexture()} transparent depthWrite={false} />
             </mesh>
-            <mesh position={[0, origH/4, -origW/2 - 0.002]} rotation={[0, Math.PI, 0]}>
-              <planeGeometry args={[Math.min(origL, origH)*0.3, Math.min(origL, origH)*0.3]} />
+            <mesh position={[0, origH / 4, -origW / 2 - 0.002]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[Math.min(origL, origH) * 0.3, Math.min(origL, origH) * 0.3]} />
               <meshBasicMaterial map={getUpArrowTexture()} transparent depthWrite={false} />
             </mesh>
-            <mesh position={[-origL/2 - 0.002, origH/4, 0]} rotation={[0, -Math.PI/2, 0]}>
-              <planeGeometry args={[Math.min(origW, origH)*0.3, Math.min(origW, origH)*0.3]} />
+            <mesh position={[-origL / 2 - 0.002, origH / 4, 0]} rotation={[0, -Math.PI / 2, 0]}>
+              <planeGeometry args={[Math.min(origW, origH) * 0.3, Math.min(origW, origH) * 0.3]} />
               <meshBasicMaterial map={getUpArrowTexture()} transparent depthWrite={false} />
             </mesh>
-            <mesh position={[origL/2 + 0.002, origH/4, 0]} rotation={[0, Math.PI/2, 0]}>
-              <planeGeometry args={[Math.min(origW, origH)*0.3, Math.min(origW, origH)*0.3]} />
+            <mesh position={[origL / 2 + 0.002, origH / 4, 0]} rotation={[0, Math.PI / 2, 0]}>
+              <planeGeometry args={[Math.min(origW, origH) * 0.3, Math.min(origW, origH) * 0.3]} />
               <meshBasicMaterial map={getUpArrowTexture()} transparent depthWrite={false} />
             </mesh>
           </group>
@@ -271,10 +290,10 @@ function ProductBox({ item, isSelected, isInGroup, isHovered, onSelect, onHover,
 
         {/* Bottom strip indicator on 4 sides */}
         {[
-          { pos: [0, -origH/2 + Math.min(origH*0.08, 0.05), origW/2 + 0.002] as [number,number,number], rot: undefined, sz: origL },
-          { pos: [0, -origH/2 + Math.min(origH*0.08, 0.05), -origW/2 - 0.002] as [number,number,number], rot: [0, Math.PI, 0] as [number,number,number], sz: origL },
-          { pos: [-origL/2 - 0.002, -origH/2 + Math.min(origH*0.08, 0.05), 0] as [number,number,number], rot: [0, -Math.PI/2, 0] as [number,number,number], sz: origW },
-          { pos: [origL/2 + 0.002, -origH/2 + Math.min(origH*0.08, 0.05), 0] as [number,number,number], rot: [0, Math.PI/2, 0] as [number,number,number], sz: origW },
+          { pos: [0, -origH / 2 + Math.min(origH * 0.08, 0.05), origW / 2 + 0.002] as [number, number, number], rot: undefined, sz: origL },
+          { pos: [0, -origH / 2 + Math.min(origH * 0.08, 0.05), -origW / 2 - 0.002] as [number, number, number], rot: [0, Math.PI, 0] as [number, number, number], sz: origL },
+          { pos: [-origL / 2 - 0.002, -origH / 2 + Math.min(origH * 0.08, 0.05), 0] as [number, number, number], rot: [0, -Math.PI / 2, 0] as [number, number, number], sz: origW },
+          { pos: [origL / 2 + 0.002, -origH / 2 + Math.min(origH * 0.08, 0.05), 0] as [number, number, number], rot: [0, Math.PI / 2, 0] as [number, number, number], sz: origW },
         ].map((s, i) => (
           <mesh key={i} position={s.pos} rotation={s.rot}>
             <planeGeometry args={[s.sz, Math.min(origH * 0.16, 0.1)]} />
@@ -391,14 +410,14 @@ function CameraController({ container, isDragging }: { container: any; isDraggin
   const controlsRef = useRef<any>(null);
 
   const l = container.length_cm * S, w = container.width_cm * S, h = container.height_cm * S;
-  const cx = l/2, cy = h/2, cz = w/2;
+  const cx = l / 2, cy = h / 2, cz = w / 2;
 
   useFrame(() => {
     if (cameraView !== 'default' && controlsRef.current) {
       const cam = camera as THREE.PerspectiveCamera;
       let dest: THREE.Vector3;
-      if (cameraView === 'right') dest = new THREE.Vector3(-l * 0.1, h * 2.8, w * 4.0);
-      else if (cameraView === 'left') dest = new THREE.Vector3(l * 1.1, h * 2.8, w * 4.0);
+      if (cameraView === 'right') dest = new THREE.Vector3(l * CAPTURE_CAM_RIGHT.x, h * CAPTURE_CAM_RIGHT.y, w * CAPTURE_CAM_RIGHT.z);
+      else if (cameraView === 'left') dest = new THREE.Vector3(l * CAPTURE_CAM_LEFT.x, h * CAPTURE_CAM_LEFT.y, w * CAPTURE_CAM_LEFT.z);
       else dest = new THREE.Vector3(cx, Math.max(l, w) * 1.5, cz); // top
 
       cam.position.lerp(dest, 0.05);
@@ -502,12 +521,12 @@ export function ContainerViewer3D() {
   const camDist = Math.max(container.length_cm, container.width_cm, container.height_cm) * S * 1.5;
 
   const rotationButtons: Array<{ dir: RotateDirection; label: string; icon: string }> = [
-    { dir: 'spin-right',    label: 'Putar Kanan',         icon: '↻' },
-    { dir: 'spin-left',     label: 'Putar Kiri',          icon: '↺' },
-    { dir: 'tip-forward',   label: 'Putar Depan Bawah',   icon: '⤵' },
-    { dir: 'tip-backward',  label: 'Putar Belakang Bawah', icon: '⤴' },
-    { dir: 'tip-right',     label: 'Putar Kanan Bawah',   icon: '⤸' },
-    { dir: 'tip-left',      label: 'Putar Kiri Bawah',    icon: '⤹' },
+    { dir: 'spin-right', label: 'Putar Kanan', icon: '↻' },
+    { dir: 'spin-left', label: 'Putar Kiri', icon: '↺' },
+    { dir: 'tip-forward', label: 'Putar Depan Bawah', icon: '⤵' },
+    { dir: 'tip-backward', label: 'Putar Belakang Bawah', icon: '⤴' },
+    { dir: 'tip-right', label: 'Putar Kanan Bawah', icon: '⤸' },
+    { dir: 'tip-left', label: 'Putar Kiri Bawah', icon: '⤹' },
   ];
 
   return (
@@ -555,10 +574,10 @@ export function ContainerViewer3D() {
         ))}
 
         {/* Placement Controller replaces DragController */}
-        <PlacementController 
-          containerLength={L} 
-          containerWidth={W} 
-          containerHeight={H} 
+        <PlacementController
+          containerLength={L}
+          containerWidth={W}
+          containerHeight={H}
           placementZones={placementZones}
         />
         <CameraController container={container} isDragging={isDragging} />

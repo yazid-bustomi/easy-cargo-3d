@@ -47,7 +47,7 @@ export interface PackResult {
   totalWeight: number;
 }
 
-interface ContainerDims {
+export interface ContainerDims {
   length: number;
   width: number;
   height: number;
