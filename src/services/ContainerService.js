@@ -1,81 +1,59 @@
-const { ContainerType } = require('../models');
-
 class ContainerService {
-  /**
-   * Get all container types
-   */
+  static containers = [
+    { id: 1, name: '20ft Standard', code: '20GP', length_cm: 589.8, width_cm: 235.2, height_cm: 239.3, max_payload_kg: 28200, is_system: true, is_custom: false },
+    { id: 2, name: '40ft Standard', code: '40GP', length_cm: 1203.2, width_cm: 235.2, height_cm: 239.3, max_payload_kg: 28800, is_system: true, is_custom: false },
+    { id: 3, name: '40ft High Cube', code: '40HC', length_cm: 1203.2, width_cm: 235.2, height_cm: 269.8, max_payload_kg: 28600, is_system: true, is_custom: false },
+  ];
+  static nextContainerId = 4;
+
   static async getAllContainers(includeCustom = true) {
-    const where = {};
-    if (!includeCustom) where.is_system = true;
-
-    return ContainerType.findAll({
-      where,
-      order: [['code', 'ASC']],
-    });
+    if (!includeCustom) return this.containers.filter(c => c.is_system);
+    return this.containers;
   }
 
-  /**
-   * Get container by ID
-   */
   static async getContainerById(containerId) {
-    return ContainerType.findByPk(containerId);
+    return this.containers.find(c => c.id == containerId);
   }
 
-  /**
-   * Get system containers (20', 40', 40'HC)
-   */
   static async getSystemContainers() {
-    return ContainerType.findAll({
-      where: { is_system: true },
-      order: [['code', 'ASC']],
-    });
+    return this.containers.filter(c => c.is_system);
   }
 
-  /**
-   * Create custom container
-   */
   static async createCustomContainer(data, userId) {
-    return ContainerType.create({
+    const newContainer = {
       ...data,
+      id: this.nextContainerId++,
       is_custom: true,
       is_system: false,
       created_by: userId,
-    });
+    };
+    this.containers.push(newContainer);
+    return newContainer;
   }
 
-  /**
-   * Update container (only custom ones allowed for updates)
-   */
   static async updateContainer(containerId, data) {
-    const container = await ContainerType.findByPk(containerId);
-    if (!container) throw new Error('Container not found');
-    if (container.is_system) throw new Error('Cannot modify system containers');
+    const idx = this.containers.findIndex(c => c.id == containerId);
+    if (idx === -1) throw new Error('Container not found');
+    if (this.containers[idx].is_system) throw new Error('Cannot modify system containers');
 
-    return container.update(data);
+    this.containers[idx] = { ...this.containers[idx], ...data };
+    return this.containers[idx];
   }
 
-  /**
-   * Delete custom container
-   */
   static async deleteContainer(containerId) {
-    const container = await ContainerType.findByPk(containerId);
-    if (!container) throw new Error('Container not found');
-    if (container.is_system) throw new Error('Cannot delete system containers');
+    const idx = this.containers.findIndex(c => c.id == containerId);
+    if (idx === -1) throw new Error('Container not found');
+    if (this.containers[idx].is_system) throw new Error('Cannot delete system containers');
 
-    return container.destroy();
+    this.containers.splice(idx, 1);
+    return { success: true };
   }
 
-  /**
-   * Calculate container volume in cm³
-   */
   static calculateVolume(container) {
     const volume = Number(container.length_cm) * Number(container.width_cm) * Number(container.height_cm);
     return Math.round(volume);
   }
 
-  /**
-   * Get container with dimensions for bin packing
-   */
   static formatForBinPacking(container) {
     return {
       length: Number(container.length_cm),

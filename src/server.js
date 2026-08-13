@@ -55,11 +55,11 @@ const PORT = process.env.PORT || 5000;
 async function startServer() {
   try {
     // Test database connection
-    await sequelize.authenticate();
-    console.log('✓ Database connected');
+    // await sequelize.authenticate();
+    // console.log('✓ Database connected');
 
     // Run seeder (creates tables and sample data)
-    await seed();
+    // await seed();
 
     // Start server
     app.listen(PORT, () => {

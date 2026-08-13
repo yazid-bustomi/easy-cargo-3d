@@ -1,78 +1,70 @@
-const { Layout, LayoutItem, Product, ContainerType } = require('../models');
 const ContainerService = require('./ContainerService');
+const ProductService = require('./ProductService');
 const { packContainer } = require('../utils/binpacking');
 
 class LayoutService {
-  /**
-   * Create new layout
-   */
+  static layouts = [];
+  static layoutItems = [];
+  static nextLayoutId = 1;
+  static nextLayoutItemId = 1;
+
   static async createLayout(data, userId) {
-    return Layout.create({
+    const layout = {
       ...data,
+      id: this.nextLayoutId++,
       created_by: userId,
-    });
+      created_at: new Date().toISOString()
+    };
+    this.layouts.push(layout);
+    return layout;
   }
 
-  /**
-   * Get layout by ID with items and container info
-   */
   static async getLayoutById(layoutId) {
-    return Layout.findByPk(layoutId, {
-      include: [
-        {
-          association: 'items',
-          include: [{ association: 'product' }],
-        },
-        { association: 'containerType' },
-      ],
-    });
+    const layout = this.layouts.find(l => l.id == layoutId);
+    if (!layout) return null;
+
+    const items = this.layoutItems.filter(i => i.layout_id == layoutId).map(item => ({
+      ...item,
+      product: ProductService.products.find(p => p.id == item.product_id)
+    }));
+
+    return {
+      ...layout,
+      items,
+      containerType: ContainerService.containers.find(c => c.id == layout.container_id)
+    };
   }
 
-  /**
-   * Get all layouts
-   */
   static async getAllLayouts(status = null) {
-    const where = {};
-    if (status) where.status = status;
+    let filtered = this.layouts;
+    if (status) filtered = filtered.filter(l => l.status === status);
 
-    return Layout.findAll({
-      where,
-      include: [{ association: 'containerType' }],
-      order: [['created_at', 'DESC']],
-    });
+    return filtered.map(layout => ({
+      ...layout,
+      containerType: ContainerService.containers.find(c => c.id == layout.container_id)
+    })).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }
 
-  /**
-   * Update layout metadata
-   */
   static async updateLayout(layoutId, data) {
-    const layout = await Layout.findByPk(layoutId);
-    if (!layout) throw new Error('Layout not found');
+    const idx = this.layouts.findIndex(l => l.id == layoutId);
+    if (idx === -1) throw new Error('Layout not found');
 
-    return layout.update(data);
+    this.layouts[idx] = { ...this.layouts[idx], ...data };
+    return this.layouts[idx];
   }
 
-  /**
-   * Delete layout
-   */
   static async deleteLayout(layoutId) {
-    const layout = await Layout.findByPk(layoutId);
-    if (!layout) throw new Error('Layout not found');
+    const idx = this.layouts.findIndex(l => l.id == layoutId);
+    if (idx === -1) throw new Error('Layout not found');
 
-    return layout.destroy();
+    this.layouts.splice(idx, 1);
+    this.layoutItems = this.layoutItems.filter(i => i.layout_id != layoutId);
+    return { success: true };
   }
 
-  /**
-   * Add item to layout
-   */
   static async addLayoutItem(layoutId, productId, position, rotation) {
-    const layout = await Layout.findByPk(layoutId);
-    if (!layout) throw new Error('Layout not found');
-
-    const product = await Product.findByPk(productId);
-    if (!product) throw new Error('Product not found');
-
-    return LayoutItem.create({
+    const item = {
+      id: this.nextLayoutItemId++,
       layout_id: layoutId,
       product_id: productId,
       pos_x: position.x,
@@ -81,50 +73,35 @@ class LayoutService {
       rot_x: rotation.x,
       rot_y: rotation.y,
       rot_z: rotation.z,
-    });
+    };
+    this.layoutItems.push(item);
+    return item;
   }
 
-  /**
-   * Update layout item position/rotation
-   */
   static async updateLayoutItem(itemId, data) {
-    const item = await LayoutItem.findByPk(itemId);
-    if (!item) throw new Error('Layout item not found');
+    const idx = this.layoutItems.findIndex(i => i.id == itemId);
+    if (idx === -1) throw new Error('Layout item not found');
 
-    return item.update(data);
+    this.layoutItems[idx] = { ...this.layoutItems[idx], ...data };
+    return this.layoutItems[idx];
   }
 
-  /**
-   * Remove layout item
-   */
   static async removeLayoutItem(itemId) {
-    const item = await LayoutItem.findByPk(itemId);
-    if (!item) throw new Error('Layout item not found');
+    const idx = this.layoutItems.findIndex(i => i.id == itemId);
+    if (idx === -1) throw new Error('Layout item not found');
 
-    return item.destroy();
+    this.layoutItems.splice(idx, 1);
+    return { success: true };
   }
 
-  /**
-   * Auto pack: use bin packing algorithm to place all products into layout
-   */
   static async autoPack(layoutId) {
-    const layout = await Layout.findByPk(layoutId, {
-      include: [
-        { association: 'items' },
-        { association: 'containerType' },
-      ],
-    });
+    const layout = await this.getLayoutById(layoutId);
     if (!layout) throw new Error('Layout not found');
 
-    // Get all products and their quantities for bin packing
-    const products = await Product.findAll({
-      where: { is_active: true },
-      attributes: ['id', 'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'this_side_up', 'rotation_allowed', 'stackable', 'max_stack'],
-    });
+    const products = ProductService.products.filter(p => p.is_active !== false);
 
-    // Format for bin packing algorithm
     const packItems = products
-      .filter(p => p.dataValues.qty > 0) // Only products with qty
+      .filter(p => p.qty > 0)
       .map(p => ({
         productId: p.id,
         length: Number(p.length_cm),
@@ -135,19 +112,17 @@ class LayoutService {
         rotationAllowed: p.rotation_allowed,
         stackable: p.stackable,
         maxStack: p.max_stack,
-        qty: p.dataValues.qty,
+        qty: p.qty,
       }));
 
-    // Run packing algorithm
     const container = ContainerService.formatForBinPacking(layout.containerType);
     const packResult = packContainer(container, packItems);
 
-    // Clear existing items
-    await LayoutItem.destroy({ where: { layout_id: layoutId } });
+    this.layoutItems = this.layoutItems.filter(i => i.layout_id != layoutId);
 
-    // Insert packed items
     for (const placed of packResult.placed) {
-      await LayoutItem.create({
+      this.layoutItems.push({
+        id: this.nextLayoutItemId++,
         layout_id: layoutId,
         product_id: placed.productId,
         instance_no: placed.instanceNo,
@@ -162,11 +137,10 @@ class LayoutService {
       });
     }
 
-    // Update layout statistics
     const containerVolume = ContainerService.calculateVolume(layout.containerType);
     const usagePercent = (packResult.usedVolume / containerVolume) * 100;
 
-    await layout.update({
+    await this.updateLayout(layoutId, {
       total_weight_kg: packResult.totalWeight,
       used_volume_cm3: packResult.usedVolume,
       item_count: packResult.placed.length,
@@ -182,35 +156,21 @@ class LayoutService {
     };
   }
 
-  /**
-   * Reset layout (clear all items)
-   */
   static async resetLayout(layoutId) {
-    const layout = await Layout.findByPk(layoutId);
+    const layout = await this.getLayoutById(layoutId);
     if (!layout) throw new Error('Layout not found');
 
-    await LayoutItem.destroy({ where: { layout_id: layoutId } });
+    this.layoutItems = this.layoutItems.filter(i => i.layout_id != layoutId);
 
-    return layout.update({
+    return this.updateLayout(layoutId, {
       total_weight_kg: 0,
       used_volume_cm3: 0,
       item_count: 0,
     });
   }
 
-  /**
-   * Calculate layout statistics
-   */
   static async calculateStats(layoutId) {
-    const layout = await Layout.findByPk(layoutId, {
-      include: [
-        {
-          association: 'items',
-          include: [{ association: 'product' }],
-        },
-        { association: 'containerType' },
-      ],
-    });
+    const layout = await this.getLayoutById(layoutId);
     if (!layout) throw new Error('Layout not found');
 
     let totalWeight = 0;

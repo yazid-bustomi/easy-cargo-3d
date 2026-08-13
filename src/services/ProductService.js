@@ -1,111 +1,90 @@
-const { Product, ProductGroup } = require('../models');
-
 class ProductService {
-  /**
-   * Get all products with optional group filtering
-   */
+  static products = [];
+  static groups = [
+    { id: 1, name: 'General', color_hex: '#3B82F6', sort_order: 1, is_collapsed: false }
+  ];
+  static nextProductId = 1;
+  static nextGroupId = 2;
+
   static async getAllProducts(groupId = null) {
-    const where = { is_active: true };
-    if (groupId) where.group_id = groupId;
-
-    return Product.findAll({
-      where,
-      include: [
-        { association: 'group', attributes: ['id', 'name', 'color_hex'] },
-      ],
-      order: [['sku', 'ASC']],
-    });
+    let filtered = this.products.filter(p => p.is_active !== false);
+    if (groupId) filtered = filtered.filter(p => p.group_id == groupId);
+    
+    return filtered.map(p => ({
+      ...p,
+      group: this.groups.find(g => g.id == p.group_id)
+    })).sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
   }
 
-  /**
-   * Get product by ID
-   */
   static async getProductById(productId) {
-    return Product.findByPk(productId, {
-      include: [
-        { association: 'group', attributes: ['id', 'name', 'color_hex'] },
-      ],
-    });
+    const product = this.products.find(p => p.id == productId);
+    if (!product) return null;
+    return {
+      ...product,
+      group: this.groups.find(g => g.id == product.group_id)
+    };
   }
 
-  /**
-   * Create new product
-   */
   static async createProduct(data, userId) {
-    return Product.create({
+    const newProduct = {
       ...data,
+      id: this.nextProductId++,
       created_by: userId,
-    });
+      is_active: true
+    };
+    this.products.push(newProduct);
+    return newProduct;
   }
 
-  /**
-   * Update product
-   */
   static async updateProduct(productId, data) {
-    const product = await Product.findByPk(productId);
-    if (!product) throw new Error('Product not found');
+    const idx = this.products.findIndex(p => p.id == productId);
+    if (idx === -1) throw new Error('Product not found');
 
-    return product.update(data);
+    this.products[idx] = { ...this.products[idx], ...data };
+    return this.products[idx];
   }
 
-  /**
-   * Delete product (soft delete via is_active)
-   */
   static async deleteProduct(productId) {
-    const product = await Product.findByPk(productId);
-    if (!product) throw new Error('Product not found');
+    const idx = this.products.findIndex(p => p.id == productId);
+    if (idx === -1) throw new Error('Product not found');
 
-    return product.update({ is_active: false });
+    this.products[idx].is_active = false;
+    return this.products[idx];
   }
 
-  /**
-   * Get products grouped by ProductGroup
-   */
   static async getProductsGrouped() {
-    const groups = await ProductGroup.findAll({
-      where: { is_collapsed: false },
-      include: [
-        {
-          association: 'products',
-          where: { is_active: true },
-          required: false,
-        },
-      ],
-      order: [['sort_order', 'ASC']],
-    });
-    return groups;
+    return this.groups.map(g => ({
+      ...g,
+      products: this.products.filter(p => p.group_id == g.id && p.is_active !== false)
+    })).sort((a, b) => a.sort_order - b.sort_order);
   }
 
-  /**
-   * Update product group (e.g., color change, collapse state)
-   */
   static async updateProductGroup(groupId, data) {
-    const group = await ProductGroup.findByPk(groupId);
-    if (!group) throw new Error('Product group not found');
+    const idx = this.groups.findIndex(g => g.id == groupId);
+    if (idx === -1) throw new Error('Product group not found');
 
-    return group.update(data);
+    this.groups[idx] = { ...this.groups[idx], ...data };
+    return this.groups[idx];
   }
 
-  /**
-   * Create product group
-   */
   static async createProductGroup(data, userId) {
-    return ProductGroup.create({
+    const newGroup = {
       ...data,
+      id: this.nextGroupId++,
       created_by: userId,
-    });
+      is_collapsed: false
+    };
+    this.groups.push(newGroup);
+    return newGroup;
   }
 
-  /**
-   * Bulk update product quantities (for planning)
-   */
   static async updateProductQuantities(updates) {
     const results = [];
     for (const { productId, qty } of updates) {
-      const product = await Product.findByPk(productId);
-      if (product) {
-        await product.update({ qty });
-        results.push(product);
+      const idx = this.products.findIndex(p => p.id == productId);
+      if (idx !== -1) {
+        this.products[idx].qty = qty;
+        results.push(this.products[idx]);
       }
     }
     return results;
