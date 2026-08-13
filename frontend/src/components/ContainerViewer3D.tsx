@@ -16,9 +16,9 @@ const S = 0.01;
 // Coordinate values will be multiplied by scale S
 const CAPTURE_CAM_POS: Record<string, { left: THREE.Vector3, right: THREE.Vector3, top: THREE.Vector3 }> = {
   '40HC': {
-    left: new THREE.Vector3(1080.1 * S, 520.7 * S, 651.9 * S),
-    right: new THREE.Vector3(1080.1 * S, 520.7 * S, -651.9 * S),
-    top: new THREE.Vector3(1562.3 * S, 858.5 * S, 82.0 * S),
+    left: new THREE.Vector3(1203.8 * S, 520.7 * S, 780.5 * S),
+    right: new THREE.Vector3(1358.4 * S, 581 * S, -415 * S),
+    top: new THREE.Vector3(1546.9 * S, 603.4 * S, 87.6 * S),
   },
   '20FT': {
     left: new THREE.Vector3(600 * S, 400 * S, 500 * S),
@@ -563,6 +563,7 @@ export function ContainerViewer3D() {
   }
 
   const camDist = Math.max(container.length_cm, container.width_cm, container.height_cm) * S * 1.5;
+  const initialCamPos = useMemo(() => new THREE.Vector3(camDist * 0.8, camDist * 0.6, camDist * 0.8), [camDist]);
 
   const rotationButtons: Array<{ dir: RotateDirection; label: string; icon: string }> = [
     { dir: 'spin-right', label: 'Putar Kanan', icon: '↻' },
@@ -588,10 +589,10 @@ export function ContainerViewer3D() {
           }
         }}
         shadows
-        gl={{ preserveDrawingBuffer: true, alpha: true }}
+        gl={{ preserveDrawingBuffer: true }}
       >
-        <PerspectiveCamera makeDefault position={[camDist * 0.8, camDist * 0.6, camDist * 0.8]} fov={50} />
-        {!isGeneratingReport && <color attach="background" args={['#B5B5B5']} />}
+        <PerspectiveCamera makeDefault position={initialCamPos} fov={50} />
+        <color attach="background" args={[isGeneratingReport ? '#ffffff' : '#B5B5B5']} />
         <ambientLight intensity={0.6} />
         <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
         <directionalLight position={[-10, 5, -10]} intensity={0.3} />
