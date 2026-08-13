@@ -32,7 +32,7 @@ export function Toolbar() {
     aiApiKey,
   } = usePlannerStore();
 
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
 
@@ -62,7 +62,7 @@ export function Toolbar() {
       return;
     }
 
-    setIsGeneratingPDF(true);
+    setIsGeneratingReport(true);
 
     try {
       // Load logo as base64
@@ -84,7 +84,7 @@ export function Toolbar() {
       // Reset camera
       setCameraView('default');
 
-      // Generate PDF
+      // Generate Report
       await generatePDFReport({
         projectConfig,
         products,
@@ -96,10 +96,10 @@ export function Toolbar() {
       });
 
     } catch (error) {
-      console.error('PDF generation error:', error);
-      alert('Gagal generate PDF: ' + (error as any).message);
+      console.error('Report generation error:', error);
+      alert('Gagal generate Report: ' + (error as any).message);
     } finally {
-      setIsGeneratingPDF(false);
+      setIsGeneratingReport(false);
     }
   };
 
@@ -203,25 +203,25 @@ export function Toolbar() {
           <Camera className="w-4 h-4" />
         </button>
 
-        {/* PDF Report Button */}
+        {/* Print Report Button */}
         <button
           onClick={handleGeneratePDF}
-          disabled={isAutoPackLoading || isGeneratingPDF || layoutItems.length === 0}
+          disabled={isAutoPackLoading || isGeneratingReport || layoutItems.length === 0}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-emerald-600/20"
-          title="Generate PDF Report (2 pages — Right & Left view)"
+          title="Print Report (2 pages — Left & Right view)"
         >
           <FileText className="w-3.5 h-3.5" />
-          {isGeneratingPDF ? 'Generating...' : 'PDF Report'}
+          {isGeneratingReport ? 'Preparing...' : 'Print Report'}
         </button>
       </div>
 
       {/* Right: Loading indicator */}
       <div className="flex items-center gap-2 min-w-[80px] justify-end">
-        {(isAutoPackLoading || isGeneratingPDF) && (
+        {(isAutoPackLoading || isGeneratingReport) && (
           <div className="flex items-center gap-2">
             <div className="animate-spin w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full" />
             <span className="text-xs text-gray-400">
-              {isGeneratingPDF ? 'Generating PDF...' : 'Processing...'}
+              {isGeneratingReport ? 'Preparing Report...' : 'Processing...'}
             </span>
           </div>
         )}

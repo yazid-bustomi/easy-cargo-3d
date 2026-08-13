@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { Canvas, useThree, ThreeEvent, useFrame } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, Environment, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   usePlannerStore, LayoutItem, RotateDirection, PlacementZone,
@@ -16,8 +16,8 @@ const S = 0.01;
 // x, y, z are multiplied by container l (length), h (height), w (width).
 // Right view: camera is on the left side looking right, elevated.
 // Left view: camera is on the right side looking left, elevated.
-const CAPTURE_CAM_RIGHT = { x: 0.15, y: 3.5, z: 2.8 };
-const CAPTURE_CAM_LEFT = { x: 0.20, y: 3.2, z: 2.2 };
+const CAPTURE_CAM_RIGHT = { x: 1.1, y: 2.5, z: 2.5 };
+const CAPTURE_CAM_LEFT = { x: 1.1, y: 2.5, z: -1.5 };
 
 // ── Texture Cache ────────────────────────────────────────────────────
 const textureCache: Record<string, THREE.CanvasTexture> = {};
@@ -403,8 +403,35 @@ function PlacementController({ containerLength, containerWidth, containerHeight,
   return null;
 }
 
+// ── XYZ Debug Info ───────────────────────────────────────────────────
+function XYZDebugOverlay({ controlsRef }: { controlsRef: any }) {
+  const { camera } = useThree();
+  const [pos, setPos] = useState({ x: 0, y: 0, z: 0 });
+
+  useFrame(() => {
+    if (camera) {
+      setPos({ x: camera.position.x, y: camera.position.y, z: camera.position.z });
+    }
+  });
+
+  return (
+    <Html>
+      <div style={{
+        position: 'fixed', bottom: 10, right: 10,
+        background: 'rgba(0,0,0,0.7)', color: '#0f0',
+        padding: '5px 10px', borderRadius: '4px',
+        fontFamily: 'monospace', fontSize: '12px',
+        pointerEvents: 'none', zIndex: 9999,
+        width: 'max-content'
+      }}>
+        Cam Pos - X: {(pos.x / S).toFixed(1)} | Y: {(pos.y / S).toFixed(1)} | Z: {(pos.z / S).toFixed(1)}
+      </div>
+    </Html>
+  );
+}
+
 // ── Camera Controller ────────────────────────────────────────────────
-function CameraController({ container, isDragging }: { container: any; isDragging: boolean }) {
+function CameraController({ container, isDragging, onControlsReady }: { container: any; isDragging: boolean; onControlsReady: (ctrl: any) => void }) {
   const { cameraView, setCameraView } = usePlannerStore();
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
@@ -433,15 +460,18 @@ function CameraController({ container, isDragging }: { container: any; isDraggin
       enablePan={true}
       enableZoom={true}
       enableRotate={!isDragging}
-      // Camera constraints:
-      minPolarAngle={0.1}          // Cannot look from directly above (keep slight angle)
-      maxPolarAngle={Math.PI / 2 - 0.05} // Cannot go below floor level
-      screenSpacePanning={false}   // Panning strictly locked to horizontal plane
-      // Left click = orbit (default), Right click = pan
+      minPolarAngle={0.1}
+      maxPolarAngle={Math.PI / 2 - 0.05}
+      screenSpacePanning={false}
       mouseButtons={{
         LEFT: THREE.MOUSE.ROTATE,
         MIDDLE: THREE.MOUSE.DOLLY,
         RIGHT: THREE.MOUSE.PAN,
+      }}
+      onChange={() => {
+        if (controlsRef.current) {
+          onControlsReady(controlsRef.current);
+        }
       }}
     />
   );
@@ -456,11 +486,8 @@ export function ContainerViewer3D() {
   } = usePlannerStore();
 
   const [hoveredItem, setHoveredItem] = useState<LayoutItem | null>(null);
-  // Track placement state globally
+  const [controlsRef, setControlsRef] = useState<any>(null);
   const isPlacing = usePlannerStore(s => s.isPlacing);
-
-  // We don't need isDragging anymore since it's pick and place
-  // But we can keep it to disable OrbitControls during placement
   const isDragging = isPlacing;
 
   const container = projectConfig?.containerType;
@@ -468,21 +495,17 @@ export function ContainerViewer3D() {
   const W = container?.width_cm || 0;
   const H = container?.height_cm || 0;
 
-  // We map selection logic inside ProductBox onClick or Container onClick.
   const handleSelect = (item: LayoutItem) => {
     const state = usePlannerStore.getState();
     if (state.isPlacing && state.selectedItemId === item.id) {
-      // drop
       state.setPlacing(false);
       state.pushToHistory();
     } else {
-      // pick up
       state.selectItem(item.id);
       state.setPlacing(true);
     }
   };
 
-  // Calculate placement zones when an item is selected
   const placementZones = useMemo(() => {
     if (!selectedItemId || !isPlacing || !container) return [];
     const item = layoutItems.find(i => i.id === selectedItemId);
@@ -501,7 +524,6 @@ export function ContainerViewer3D() {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Prevent browser context menu
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -536,7 +558,6 @@ export function ContainerViewer3D() {
         onPointerMissed={() => {
           const state = usePlannerStore.getState();
           if (state.isPlacing) {
-            // drop if clicking empty space
             state.setPlacing(false);
             state.pushToHistory();
           } else {
@@ -555,7 +576,6 @@ export function ContainerViewer3D() {
 
         <ContainerBox length={container.length_cm} width={container.width_cm} height={container.height_cm} />
 
-        {/* Green placement zones */}
         {placementZones.length > 0 && (
           <PlacementZones zones={placementZones} />
         )}
@@ -573,17 +593,17 @@ export function ContainerViewer3D() {
           />
         ))}
 
-        {/* Placement Controller replaces DragController */}
         <PlacementController
           containerLength={L}
           containerWidth={W}
           containerHeight={H}
           placementZones={placementZones}
         />
-        <CameraController container={container} isDragging={isDragging} />
+        <Environment preset="city" />
+        <CameraController container={container} isDragging={isDragging} onControlsReady={setControlsRef} />
+        <XYZDebugOverlay controlsRef={controlsRef} />
       </Canvas>
 
-      {/* Context Menu - 6 rotation directions */}
       {contextMenu && (
         <div className="absolute z-50" style={{ left: contextMenu.x, top: contextMenu.y }}>
           <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-xl p-2 shadow-xl min-w-[200px]">
