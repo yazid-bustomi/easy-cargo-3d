@@ -262,8 +262,8 @@ export function packContainer(container: ContainerDims, items: PackItem[]): Pack
       spaces = pruneSpaces(spaces, space.x, space.y, space.z, dims);
       spaces.push(...splitSpace(space, dims));
       // Remove spaces fully contained within another
-      spaces = spaces.filter((s, idx) => {
-        return !spaces.some((other, oIdx) => {
+      spaces = spaces.filter((s, idx, arr) => {
+        return !arr.some((other, oIdx) => {
           if (oIdx === idx) return false;
           return (
             s.x >= other.x && s.y >= other.y && s.z >= other.z &&

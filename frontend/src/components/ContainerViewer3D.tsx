@@ -4,8 +4,7 @@ import { OrbitControls, PerspectiveCamera, Environment, Html } from '@react-thre
 import * as THREE from 'three';
 import {
   usePlannerStore, LayoutItem, RotateDirection, PlacementZone,
-  checkCollision, calculateDropY, checkFullSupport,
-  getColumnGroup, calculatePlacementZones,
+  calculatePlacementZones,
 } from '../store/plannerStore';
 
 // ── Scale factor ─────────────────────────────────────────────────────
@@ -337,7 +336,7 @@ function PlacementController({ containerLength, containerWidth, containerHeight,
   placementZones: PlacementZone[];
 }) {
   const { camera, raycaster, gl } = useThree();
-  const { isPlacing, setPlacing, layoutItems, selectedItemId, selectedGroupIds, updateLayoutItem, pushToHistory, projectConfig } = usePlannerStore();
+  const { isPlacing, setPlacing, layoutItems, selectedItemId, selectedGroupIds, updateLayoutItem, pushToHistory } = usePlannerStore();
 
   const groupOffsetsRef = useRef<Record<string, { dx: number; dz: number }>>({});
 
@@ -502,8 +501,8 @@ function CameraController({ container, isDragging, onControlsReady }: { containe
 export function ContainerViewer3D() {
   const {
     projectConfig, layoutItems, selectedItemId, selectedGroupIds,
-    selectItem, contextMenu, showContextMenu, hideContextMenu,
-    rotateItem, removeLayoutItem, pushToHistory, aiAutoPack,
+    contextMenu, showContextMenu,
+    rotateItem, pushToHistory,
     isGeneratingReport,
   } = usePlannerStore();
 
@@ -554,6 +553,12 @@ export function ContainerViewer3D() {
     return () => el.removeEventListener('contextmenu', prevent);
   }, []);
 
+  const initialCamPos = useMemo(() => {
+    if (!container) return new THREE.Vector3(10, 10, 10);
+    const camDist = Math.max(container.length_cm, container.width_cm, container.height_cm) * S * 1.5;
+    return new THREE.Vector3(camDist * 0.8, camDist * 0.6, camDist * 0.8);
+  }, [container]);
+
   if (!container) {
     return (
       <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: '#B5B5B5' }}>
@@ -561,9 +566,6 @@ export function ContainerViewer3D() {
       </div>
     );
   }
-
-  const camDist = Math.max(container.length_cm, container.width_cm, container.height_cm) * S * 1.5;
-  const initialCamPos = useMemo(() => new THREE.Vector3(camDist * 0.8, camDist * 0.6, camDist * 0.8), [camDist]);
 
   const rotationButtons: Array<{ dir: RotateDirection; label: string; icon: string }> = [
     { dir: 'spin-right', label: 'Putar Kanan', icon: '↻' },
@@ -592,7 +594,7 @@ export function ContainerViewer3D() {
         gl={{ preserveDrawingBuffer: true }}
       >
         <PerspectiveCamera makeDefault position={initialCamPos} fov={50} />
-        <color attach="background" args={[isGeneratingReport ? '#ffffff' : '#B5B5B5']} />
+        <color attach="background" args={['#B5B5B5']} />
         <ambientLight intensity={0.6} />
         <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
         <directionalLight position={[-10, 5, -10]} intensity={0.3} />

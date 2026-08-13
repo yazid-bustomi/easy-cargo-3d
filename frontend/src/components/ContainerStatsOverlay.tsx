@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Layers, Truck, ArrowUp, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Box, Layers, Truck } from 'lucide-react';
 import { usePlannerStore } from '../store/plannerStore';
 
 export function ContainerStatsOverlay() {

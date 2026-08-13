@@ -54,9 +54,8 @@ function buildProductTableHtml(productSummary: ReturnType<typeof getProductSumma
   });
 
   let rowsHtml = '';
-  let groupCounter = 1;
 
-  for (const [groupLetter, products] of Object.entries(groupedProducts)) {
+  for (const [, products] of Object.entries(groupedProducts)) {
     // Add Product Rows for this group
     for (const p of products) {
       // Create a badge color based on group if color is empty
@@ -81,7 +80,6 @@ function buildProductTableHtml(productSummary: ReturnType<typeof getProductSumma
         </tr>
       `;
     }
-    groupCounter++;
   }
 
   return `
