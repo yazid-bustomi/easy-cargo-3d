@@ -401,6 +401,7 @@ export interface PlannerState {
   cameraView: 'default' | 'top' | 'left' | 'right';
   aiApiKey: string;
   aiProvider: 'gemini' | 'openai';
+  isGeneratingReport: boolean;
 
   setProjectPhase: (phase: 'setup' | 'working') => void;
   setProjectConfig: (config: ProjectConfig) => void;
@@ -432,6 +433,7 @@ export interface PlannerState {
   setCameraView: (view: 'default' | 'top' | 'left' | 'right') => void;
   setAiApiKey: (key: string) => void;
   setAiProvider: (provider: 'gemini' | 'openai') => void;
+  setIsGeneratingReport: (val: boolean) => void;
   autoPackAll: () => void;
   aiAutoPack: (customPrompt?: string) => Promise<void>;
   getLayoutStats: () => LayoutStats;
@@ -452,6 +454,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   cameraView: 'default',
   aiApiKey: '',
   aiProvider: 'gemini' as const,
+  isGeneratingReport: false,
 
   setProjectPhase: (phase) => set({ projectPhase: phase }),
 
@@ -845,6 +848,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   setAiApiKey: (key) => set({ aiApiKey: key }),
   setAiProvider: (provider) => set({ aiProvider: provider }),
+  setIsGeneratingReport: (val) => set({ isGeneratingReport: val }),
 
   autoPackAll: () => {
     const state = get();

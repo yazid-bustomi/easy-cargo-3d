@@ -12,12 +12,30 @@ import {
 const S = 0.01;
 
 // ── PDF Capture Camera Positions ─────────────────────────────────────
-// Adjust these multipliers to change the PDF screenshot angle.
-// x, y, z are multiplied by container l (length), h (height), w (width).
-// Right view: camera is on the left side looking right, elevated.
-// Left view: camera is on the right side looking left, elevated.
-const CAPTURE_CAM_RIGHT = { x: 1.1, y: 2.5, z: 2.5 };
-const CAPTURE_CAM_LEFT = { x: 1.1, y: 2.5, z: -1.5 };
+// Define positions for each container code (20FT, 40FT, 40HC, 45HC)
+// Coordinate values will be multiplied by scale S
+const CAPTURE_CAM_POS: Record<string, { left: THREE.Vector3, right: THREE.Vector3, top: THREE.Vector3 }> = {
+  '40HC': {
+    left: new THREE.Vector3(1080.1 * S, 520.7 * S, 651.9 * S),
+    right: new THREE.Vector3(1080.1 * S, 520.7 * S, -651.9 * S),
+    top: new THREE.Vector3(1562.3 * S, 858.5 * S, 82.0 * S),
+  },
+  '20FT': {
+    left: new THREE.Vector3(600 * S, 400 * S, 500 * S),
+    right: new THREE.Vector3(600 * S, 400 * S, -500 * S),
+    top: new THREE.Vector3(600 * S, 800 * S, 0 * S),
+  },
+  '40FT': {
+    left: new THREE.Vector3(1080 * S, 520 * S, 650 * S),
+    right: new THREE.Vector3(1080 * S, 520 * S, -650 * S),
+    top: new THREE.Vector3(1560 * S, 850 * S, 80 * S),
+  },
+  '45HC': {
+    left: new THREE.Vector3(1200 * S, 550 * S, 700 * S),
+    right: new THREE.Vector3(1200 * S, 550 * S, -700 * S),
+    top: new THREE.Vector3(1700 * S, 900 * S, 85 * S),
+  }
+};
 
 // ── Texture Cache ────────────────────────────────────────────────────
 const textureCache: Record<string, THREE.CanvasTexture> = {};
@@ -443,9 +461,12 @@ function CameraController({ container, isDragging, onControlsReady }: { containe
     if (cameraView !== 'default' && controlsRef.current) {
       const cam = camera as THREE.PerspectiveCamera;
       let dest: THREE.Vector3;
-      if (cameraView === 'right') dest = new THREE.Vector3(l * CAPTURE_CAM_RIGHT.x, h * CAPTURE_CAM_RIGHT.y, w * CAPTURE_CAM_RIGHT.z);
-      else if (cameraView === 'left') dest = new THREE.Vector3(l * CAPTURE_CAM_LEFT.x, h * CAPTURE_CAM_LEFT.y, w * CAPTURE_CAM_LEFT.z);
-      else dest = new THREE.Vector3(cx, Math.max(l, w) * 1.5, cz); // top
+      
+      const camConfig = CAPTURE_CAM_POS[container.code] || CAPTURE_CAM_POS['40HC'];
+
+      if (cameraView === 'right') dest = camConfig.right.clone();
+      else if (cameraView === 'left') dest = camConfig.left.clone();
+      else dest = camConfig.top.clone();
 
       cam.position.lerp(dest, 0.05);
       controlsRef.current.target.lerp(new THREE.Vector3(cx, cy, cz), 0.05);
@@ -482,7 +503,8 @@ export function ContainerViewer3D() {
   const {
     projectConfig, layoutItems, selectedItemId, selectedGroupIds,
     selectItem, contextMenu, showContextMenu, hideContextMenu,
-    rotateItem, removeLayoutItem, pushToHistory,
+    rotateItem, removeLayoutItem, pushToHistory, aiAutoPack,
+    isGeneratingReport,
   } = usePlannerStore();
 
   const [hoveredItem, setHoveredItem] = useState<LayoutItem | null>(null);
@@ -566,10 +588,10 @@ export function ContainerViewer3D() {
           }
         }}
         shadows
-        gl={{ preserveDrawingBuffer: true }}
+        gl={{ preserveDrawingBuffer: true, alpha: true }}
       >
         <PerspectiveCamera makeDefault position={[camDist * 0.8, camDist * 0.6, camDist * 0.8]} fov={50} />
-        <color attach="background" args={['#B5B5B5']} />
+        {!isGeneratingReport && <color attach="background" args={['#B5B5B5']} />}
         <ambientLight intensity={0.6} />
         <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
         <directionalLight position={[-10, 5, -10]} intensity={0.3} />

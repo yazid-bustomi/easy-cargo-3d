@@ -30,9 +30,10 @@ export function Toolbar() {
     setCameraView,
     aiAutoPack,
     aiApiKey,
+    isGeneratingReport,
+    setIsGeneratingReport,
   } = usePlannerStore();
 
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
 

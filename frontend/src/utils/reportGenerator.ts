@@ -57,13 +57,6 @@ function buildProductTableHtml(productSummary: ReturnType<typeof getProductSumma
   let groupCounter = 1;
 
   for (const [groupLetter, products] of Object.entries(groupedProducts)) {
-    // Add Group Header Row
-    rowsHtml += `
-      <tr class="group-row">
-        <td colspan="7">Group No. ${groupCounter}</td>
-      </tr>
-    `;
-
     // Add Product Rows for this group
     for (const p of products) {
       // Create a badge color based on group if color is empty
@@ -252,8 +245,9 @@ const CSS = `
     }
 
     .header-right img {
-      width: 150px;
-      height: auto;
+      width: 100px;
+      max-height: 55px;
+      object-fit: contain;
     }
 
     .side-tag {
