@@ -24,12 +24,16 @@ export interface ContainerType {
 export interface Product {
   id: string;
   name: string;
+  group: string;
   length_cm: number;
   width_cm: number;
   height_cm: number;
   weight_kg: number;
   qty: number;
   this_side_up: boolean;
+  stackable: boolean;
+  must_be_on_top: boolean;
+  can_be_laid_down: boolean;
   color_hex: string;
 }
 
@@ -394,6 +398,8 @@ export interface PlannerState {
   historyIndex: number;
   isAutoPackLoading: boolean;
   cameraView: 'default' | 'top' | 'left' | 'right';
+  aiApiKey: string;
+  aiProvider: 'gemini' | 'openai';
 
   setProjectPhase: (phase: 'setup' | 'working') => void;
   setProjectConfig: (config: ProjectConfig) => void;
@@ -423,6 +429,9 @@ export interface PlannerState {
   redo: () => void;
   setAutoPackLoading: (loading: boolean) => void;
   setCameraView: (view: 'default' | 'top' | 'left' | 'right') => void;
+  setAiApiKey: (key: string) => void;
+  setAiProvider: (provider: 'gemini' | 'openai') => void;
+  autoPackAll: () => void;
   getLayoutStats: () => LayoutStats;
 }
 
@@ -439,6 +448,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   historyIndex: 0,
   isAutoPackLoading: false,
   cameraView: 'default',
+  aiApiKey: '',
+  aiProvider: 'gemini' as const,
 
   setProjectPhase: (phase) => set({ projectPhase: phase }),
 
@@ -463,15 +474,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   addProduct: (productInfo) =>
     set((state) => {
       const colorIdx = state.products.length % PRODUCT_COLORS.length;
+      const groupLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const groupLetter = groupLetters[state.products.length % groupLetters.length];
       const newProduct: Product = {
         id: genId(),
         name: `Product ${state.products.length + 1}`,
+        group: groupLetter,
         length_cm: 60,
         width_cm: 40,
         height_cm: 40,
         weight_kg: 15,
         qty: 1,
         this_side_up: false,
+        stackable: true,
+        must_be_on_top: false,
+        can_be_laid_down: true,
         color_hex: PRODUCT_COLORS[colorIdx],
         ...productInfo,
       };
@@ -699,19 +716,15 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         case 'spin-right': deltaQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2); break;
         case 'spin-left': deltaQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); break;
         case 'tip-forward': 
-          if (item.this_side_up) return { contextMenu: null };
           deltaQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2); 
           break;
         case 'tip-backward': 
-          if (item.this_side_up) return { contextMenu: null };
           deltaQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2); 
           break;
         case 'tip-right': 
-          if (item.this_side_up) return { contextMenu: null };
           deltaQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2); 
           break;
         case 'tip-left': 
-          if (item.this_side_up) return { contextMenu: null };
           deltaQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2); 
           break;
       }
@@ -827,6 +840,96 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   setAutoPackLoading: (loading) => set({ isAutoPackLoading: loading }),
 
   setCameraView: (view) => set({ cameraView: view }),
+
+  setAiApiKey: (key) => set({ aiApiKey: key }),
+  setAiProvider: (provider) => set({ aiProvider: provider }),
+
+  autoPackAll: () => {
+    const state = get();
+    const container = state.projectConfig?.containerType;
+    if (!container || state.products.length === 0) return;
+
+    set({ isAutoPackLoading: true });
+
+    // Import and run bin packing (done async to not block UI)
+    setTimeout(() => {
+      try {
+        const { packContainer } = require('../utils/binPacking');
+
+        const packItems = state.products.map(p => ({
+          productId: p.id,
+          name: p.name,
+          group: p.group,
+          length: p.length_cm,
+          width: p.width_cm,
+          height: p.height_cm,
+          weight: p.weight_kg,
+          thisSideUp: p.this_side_up,
+          stackable: p.stackable,
+          mustBeOnTop: p.must_be_on_top,
+          canBeLaidDown: p.can_be_laid_down,
+          qty: p.qty,
+          colorHex: p.color_hex,
+        }));
+
+        const result = packContainer(
+          {
+            length: container.length_cm,
+            width: container.width_cm,
+            height: container.height_cm,
+            maxPayloadKg: container.max_payload_kg,
+          },
+          packItems
+        );
+
+        const newLayoutItems: LayoutItem[] = result.placed.map((p: any) => {
+          const product = state.products.find(prod => prod.id === p.productId);
+          return {
+            id: genId(),
+            product_id: p.productId,
+            product_name: product?.name || 'Unknown',
+            instance_no: p.instanceNo,
+            pos_x: p.x,
+            pos_y: p.y,
+            pos_z: p.z,
+            rot_x: p.rotX,
+            rot_y: p.rotY,
+            rot_z: p.rotZ,
+            length_cm: p.length,
+            width_cm: p.width,
+            height_cm: p.height,
+            weight_kg: product?.weight_kg || 0,
+            color_hex: product?.color_hex || '#fde047',
+            this_side_up: product?.this_side_up || false,
+          };
+        });
+
+        const newHistory = state.history.slice(0, state.historyIndex + 1);
+        newHistory.push(JSON.parse(JSON.stringify(newLayoutItems)));
+
+        set({
+          layoutItems: newLayoutItems,
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+          isAutoPackLoading: false,
+          selectedItemId: null,
+          selectedGroupIds: [],
+        });
+
+        if (result.unplaced.length > 0) {
+          const unplacedNames = result.unplaced.map((u: any) => {
+            const prod = state.products.find(p => p.id === u.productId);
+            return `${prod?.name || u.productId} (${u.qty} pcs)`;
+          }).join(', ');
+          alert(`Auto Pack selesai!\n\nTidak muat: ${unplacedNames}`);
+        }
+      } catch (error) {
+        console.error('Auto pack error:', error);
+        alert('Gagal melakukan auto pack: ' + (error as any).message);
+        set({ isAutoPackLoading: false });
+      }
+    }, 50);
+  },
 
   getLayoutStats: () => {
     const state = get();

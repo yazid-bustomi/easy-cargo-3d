@@ -31,23 +31,69 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines;
 }
 
-export function getLabelTexture(label: string): THREE.CanvasTexture {
-  if (textureCache[label]) return textureCache[label];
+export function getLabelTexture(label: string, w: number, h: number): THREE.CanvasTexture {
+  const key = `${label}_${w}_${h}`;
+  if (textureCache[key]) return textureCache[key];
+
   const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 512;
+  const scale = 1000 / Math.max(w, h, 1);
+  const cw = w * scale;
+  const ch = h * scale;
+  canvas.width = cw;
+  canvas.height = ch;
   const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, 1024, 512);
+  
+  let minSize = 10;
+  let maxSize = Math.min(cw, ch);
+  let bestSize = minSize;
+  let bestLines: string[] = [label];
+
+  for (let i = 0; i < 20; i++) {
+    const mid = (minSize + maxSize) / 2;
+    ctx.font = `bold ${mid}px Arial, sans-serif`;
+    
+    const lines = wrapText(ctx, label, cw * 0.9);
+    const lh = mid * 1.1;
+    const totalHeight = lines.length * lh;
+    
+    let fitsWidth = true;
+    for (const l of lines) {
+      if (ctx.measureText(l).width > cw * 0.95) {
+        fitsWidth = false;
+        break;
+      }
+    }
+    
+    if (totalHeight <= ch * 0.9 && fitsWidth) {
+      bestSize = mid;
+      bestLines = lines;
+      minSize = mid;
+    } else {
+      maxSize = mid;
+    }
+  }
+
+  ctx.clearRect(0, 0, cw, ch);
   ctx.fillStyle = '#111827';
-  ctx.font = 'bold 100px Arial, sans-serif';
-  ctx.textAlign = 'center';
+  ctx.font = `bold ${bestSize}px Arial, sans-serif`;
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const lines = wrapText(ctx, label, 900);
-  const lh = 120;
-  const sy = 256 - ((lines.length - 1) * lh) / 2;
-  lines.forEach((line, i) => ctx.fillText(line, 512, sy + i * lh));
+  
+  const lh = bestSize * 1.1;
+  const totalTextHeight = bestLines.length * lh;
+  const extraSpace = ch - totalTextHeight;
+  const spacing = bestLines.length > 1 ? extraSpace / (bestLines.length + 1) : 0;
+  
+  let currentY = bestLines.length > 1 ? spacing + (lh / 2) : ch / 2;
+  
+  bestLines.forEach((line) => {
+    ctx.fillText(line, cw * 0.05, currentY);
+    if (bestLines.length > 1) currentY += lh + spacing;
+  });
+  
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 16;
+  textureCache[key] = tex;
   return tex;
 }
 
@@ -154,7 +200,9 @@ function ProductBox({ item, isSelected, isInGroup, isHovered, onSelect, onHover,
   const displayColor = isSelected ? '#4ade80' : isInGroup ? '#86efac' : isHovered ? '#fef08a' : baseColor;
   const outlineColor = isSelected ? '#16a34a' : isInGroup ? '#22c55e' : '';
   
-  const labelTexture = useMemo(() => getLabelTexture(item.product_name), [item.product_name]);
+  const texTop = useMemo(() => getLabelTexture(item.product_name, origL * 0.9, origW * 0.9), [item.product_name, origL, origW]);
+  const texFront = useMemo(() => getLabelTexture(item.product_name, origL * 0.9, Math.min(origH * 0.5, origL * 0.45)), [item.product_name, origL, origH]);
+  const texSide = useMemo(() => getLabelTexture(item.product_name, origW * 0.9, Math.min(origH * 0.5, origW * 0.45)), [item.product_name, origW, origH]);
 
   return (
     <group position={[x + l/2, y + h/2, z + w/2]}>
@@ -177,26 +225,26 @@ function ProductBox({ item, isSelected, isInGroup, isHovered, onSelect, onHover,
           <meshBasicMaterial color="#374151" />
         </mesh>
 
-        {/* Labels: Top + 4 sides (No bottom label so the dark bottom is clearly visible) */}
+        {/* Labels */}
         <mesh position={[0, origH/2 + 0.001, 0]} rotation={[-Math.PI/2, 0, 0]}>
           <planeGeometry args={[origL * 0.9, origW * 0.9]} />
-          <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+          <meshBasicMaterial map={texTop} transparent depthWrite={false} />
         </mesh>
         <mesh position={[0, 0, origW/2 + 0.001]}>
           <planeGeometry args={[origL * 0.9, Math.min(origH * 0.5, origL * 0.45)]} />
-          <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+          <meshBasicMaterial map={texFront} transparent depthWrite={false} />
         </mesh>
         <mesh position={[0, 0, -origW/2 - 0.001]} rotation={[0, Math.PI, 0]}>
           <planeGeometry args={[origL * 0.9, Math.min(origH * 0.5, origL * 0.45)]} />
-          <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+          <meshBasicMaterial map={texFront} transparent depthWrite={false} />
         </mesh>
         <mesh position={[-origL/2 - 0.001, 0, 0]} rotation={[0, -Math.PI/2, 0]}>
           <planeGeometry args={[origW * 0.9, Math.min(origH * 0.5, origW * 0.45)]} />
-          <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+          <meshBasicMaterial map={texSide} transparent depthWrite={false} />
         </mesh>
         <mesh position={[origL/2 + 0.001, 0, 0]} rotation={[0, Math.PI/2, 0]}>
           <planeGeometry args={[origW * 0.9, Math.min(origH * 0.5, origW * 0.45)]} />
-          <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+          <meshBasicMaterial map={texSide} transparent depthWrite={false} />
         </mesh>
 
         {/* This Side Up Icons */}
@@ -349,8 +397,8 @@ function CameraController({ container, isDragging }: { container: any; isDraggin
     if (cameraView !== 'default' && controlsRef.current) {
       const cam = camera as THREE.PerspectiveCamera;
       let dest: THREE.Vector3;
-      if (cameraView === 'right') dest = new THREE.Vector3(-l * 0.2, h * 1.5, w * 1.8);
-      else if (cameraView === 'left') dest = new THREE.Vector3(l * 1.2, h * 1.5, w * 1.8);
+      if (cameraView === 'right') dest = new THREE.Vector3(-l * 0.1, h * 2.8, w * 4.0);
+      else if (cameraView === 'left') dest = new THREE.Vector3(l * 1.1, h * 2.8, w * 4.0);
       else dest = new THREE.Vector3(cx, Math.max(l, w) * 1.5, cz); // top
 
       cam.position.lerp(dest, 0.05);

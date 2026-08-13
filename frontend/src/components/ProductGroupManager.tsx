@@ -28,7 +28,9 @@ function ProductPreview({ product }: { product: Product }) {
   const w = (product.width_cm || 1) * s;
   const h = (product.height_cm || 1) * s;
 
-  const labelTexture = React.useMemo(() => getLabelTexture(product.name), [product.name]);
+  const texTop = React.useMemo(() => getLabelTexture(product.name, product.length_cm * 0.9, product.width_cm * 0.9), [product.name, product.length_cm, product.width_cm]);
+  const texFront = React.useMemo(() => getLabelTexture(product.name, product.length_cm * 0.9, Math.min(product.height_cm * 0.5, product.length_cm * 0.45)), [product.name, product.length_cm, product.height_cm]);
+  const texSide = React.useMemo(() => getLabelTexture(product.name, product.width_cm * 0.9, Math.min(product.height_cm * 0.5, product.width_cm * 0.45)), [product.name, product.width_cm, product.height_cm]);
 
   return (
     <mesh ref={meshRef}>
@@ -43,23 +45,23 @@ function ProductPreview({ product }: { product: Product }) {
       {/* Labels */}
       <mesh position={[0, h/2 + 0.001, 0]} rotation={[-Math.PI/2, 0, 0]}>
         <planeGeometry args={[l * 0.9, w * 0.9]} />
-        <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+        <meshBasicMaterial map={texTop} transparent depthWrite={false} />
       </mesh>
       <mesh position={[0, 0, w/2 + 0.001]}>
         <planeGeometry args={[l * 0.9, Math.min(h * 0.5, l * 0.45)]} />
-        <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+        <meshBasicMaterial map={texFront} transparent depthWrite={false} />
       </mesh>
       <mesh position={[0, 0, -w/2 - 0.001]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[l * 0.9, Math.min(h * 0.5, l * 0.45)]} />
-        <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+        <meshBasicMaterial map={texFront} transparent depthWrite={false} />
       </mesh>
       <mesh position={[-l/2 - 0.001, 0, 0]} rotation={[0, -Math.PI/2, 0]}>
         <planeGeometry args={[w * 0.9, Math.min(h * 0.5, w * 0.45)]} />
-        <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+        <meshBasicMaterial map={texSide} transparent depthWrite={false} />
       </mesh>
       <mesh position={[l/2 + 0.001, 0, 0]} rotation={[0, Math.PI/2, 0]}>
         <planeGeometry args={[w * 0.9, Math.min(h * 0.5, w * 0.45)]} />
-        <meshBasicMaterial map={labelTexture} transparent depthWrite={false} />
+        <meshBasicMaterial map={texSide} transparent depthWrite={false} />
       </mesh>
 
       {/* This Side Up Icons */}
@@ -162,10 +164,13 @@ export function ProductGroupManager() {
                 onClick={() => setEditingProductId(isEditing ? null : product.id)}
                 className="flex items-center gap-2 flex-1 text-left min-w-0"
               >
+                {/* Group Badge */}
                 <div
-                  className="w-4 h-4 rounded-sm flex-shrink-0"
-                  style={{ backgroundColor: product.color_hex }}
-                />
+                  className="w-7 h-7 rounded flex items-center justify-center text-xs font-bold flex-shrink-0"
+                  style={{ backgroundColor: product.color_hex, color: '#111' }}
+                >
+                  {product.group || '?'}
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex justify-between items-center">
                     <h3 className="font-semibold text-white text-sm truncate">{product.name}</h3>
@@ -194,14 +199,30 @@ export function ProductGroupManager() {
             {/* Edit form */}
             {isEditing && (
               <div className="px-3 pb-3 border-t border-gray-700/50 pt-3 space-y-2 bg-gray-900/40">
-                {/* Name */}
-                <input
-                  type="text"
-                  value={product.name}
-                  onChange={(e) => updateProduct(product.id, { name: e.target.value })}
-                  className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
-                  placeholder="Product name"
-                />
+                {/* Name + Group */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  <div className="col-span-3">
+                    <label className="block text-xs text-gray-500 mb-0.5">Name</label>
+                    <input
+                      type="text"
+                      value={product.name}
+                      onChange={(e) => updateProduct(product.id, { name: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      placeholder="Product name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-0.5">Group</label>
+                    <input
+                      type="text"
+                      value={product.group}
+                      onChange={(e) => updateProduct(product.id, { group: e.target.value.toUpperCase() })}
+                      className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm text-center font-bold focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      placeholder="A"
+                      maxLength={4}
+                    />
+                  </div>
+                </div>
 
                 {/* L, W, H */}
                 <div className="grid grid-cols-3 gap-1.5">
@@ -250,7 +271,7 @@ export function ProductGroupManager() {
                 {/* Weight, Qty */}
                 <div className="grid grid-cols-2 gap-1.5">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-0.5">Weight (kg)</label>
+                    <label className="block text-xs text-gray-500 mb-0.5">Weight / pc (kg)</label>
                     <input
                       type="number"
                       value={product.weight_kg === 0 ? '' : product.weight_kg}
@@ -272,18 +293,49 @@ export function ProductGroupManager() {
                   </div>
                 </div>
 
-                {/* This Side Up, Color + Actions */}
-                <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center gap-3">
+                {/* Constraints + Color */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="text-xs text-gray-500 font-medium">Constraints (untuk Auto Pack)</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={product.this_side_up}
                         onChange={(e) => updateProduct(product.id, { this_side_up: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+                        className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
                       />
                       <span className="text-xs text-gray-300">↑ This Side Up</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={product.stackable}
+                        onChange={(e) => updateProduct(product.id, { stackable: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+                      />
+                      <span className="text-xs text-gray-300">📦 Stackable</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={product.must_be_on_top}
+                        onChange={(e) => updateProduct(product.id, { must_be_on_top: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+                      />
+                      <span className="text-xs text-gray-300">⬆ Must Be On Top</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={product.can_be_laid_down}
+                        onChange={(e) => updateProduct(product.id, { can_be_laid_down: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+                      />
+                      <span className="text-xs text-gray-300">↔ Can Be Laid Down</span>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-xs text-gray-500">Color:</span>
                     <input 
                       type="color" 
                       value={product.color_hex}
@@ -292,8 +344,9 @@ export function ProductGroupManager() {
                       title="Change color"
                     />
                   </div>
-                {/* Actions: Update All, Clear, Delete */}
                 </div>
+
+                {/* Actions: Update All, Clear, Delete */}
                 <div className="flex flex-col gap-2 pt-2 border-t border-gray-700/50">
                   <button
                     onClick={() => {

@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   RotateCcw,
   RotateCw,
   Trash2,
-  Download,
   Camera,
   Zap,
   ArrowLeft,
+  FileText,
 } from 'lucide-react';
 import { usePlannerStore } from '../store/plannerStore';
+import { generatePDFReport, imageUrlToBase64 } from '../utils/reportGenerator';
 
 export function Toolbar() {
   const {
@@ -21,7 +22,13 @@ export function Toolbar() {
     redo,
     isAutoPackLoading,
     layoutItems,
+    products,
+    autoPackAll,
+    getLayoutStats,
+    setCameraView,
   } = usePlannerStore();
+
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -33,6 +40,61 @@ export function Toolbar() {
     link.download = `${projectConfig?.name || 'layout'}-${new Date().toISOString().split('T')[0]}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
+  };
+
+  const handleAutoPack = () => {
+    if (products.length === 0) {
+      alert('Tambahkan product terlebih dahulu!');
+      return;
+    }
+    autoPackAll();
+  };
+
+  const handleGeneratePDF = async () => {
+    if (!projectConfig || layoutItems.length === 0) {
+      alert('Masukkan product ke container terlebih dahulu!');
+      return;
+    }
+
+    setIsGeneratingPDF(true);
+
+    try {
+      // Load logo as base64
+      const logoBase64 = await imageUrlToBase64('/label-logo.jpg');
+      const stats = getLayoutStats();
+
+      // Capture Right View
+      setCameraView('right');
+      await new Promise(r => setTimeout(r, 2000));
+      const canvas = document.querySelector('canvas') as HTMLCanvasElement;
+      if (!canvas) throw new Error('Canvas not found');
+      const rightViewImage = canvas.toDataURL('image/png');
+
+      // Capture Left View
+      setCameraView('left');
+      await new Promise(r => setTimeout(r, 2000));
+      const leftViewImage = canvas.toDataURL('image/png');
+
+      // Reset camera
+      setCameraView('default');
+
+      // Generate PDF
+      await generatePDFReport({
+        projectConfig,
+        products,
+        layoutItems,
+        stats,
+        rightViewImage,
+        leftViewImage,
+        logoBase64,
+      });
+
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      alert('Gagal generate PDF: ' + (error as any).message);
+    } finally {
+      setIsGeneratingPDF(false);
+    }
   };
 
   return (
@@ -76,6 +138,19 @@ export function Toolbar() {
 
         <div className="w-px h-5 bg-gray-700 mx-1.5" />
 
+        {/* Auto Pack Button */}
+        <button
+          onClick={handleAutoPack}
+          disabled={isAutoPackLoading || products.length === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-amber-600/20"
+          title="Auto Pack — otomatis susun semua product ke container"
+        >
+          <Zap className="w-3.5 h-3.5" />
+          Auto Pack
+        </button>
+
+        <div className="w-px h-5 bg-gray-700 mx-1.5" />
+
         <button
           onClick={clearLayoutItems}
           disabled={isAutoPackLoading || layoutItems.length === 0}
@@ -95,14 +170,27 @@ export function Toolbar() {
         >
           <Camera className="w-4 h-4" />
         </button>
+
+        {/* PDF Report Button */}
+        <button
+          onClick={handleGeneratePDF}
+          disabled={isAutoPackLoading || isGeneratingPDF || layoutItems.length === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-emerald-600/20"
+          title="Generate PDF Report (2 pages — Right & Left view)"
+        >
+          <FileText className="w-3.5 h-3.5" />
+          {isGeneratingPDF ? 'Generating...' : 'PDF Report'}
+        </button>
       </div>
 
       {/* Right: Loading indicator */}
       <div className="flex items-center gap-2 min-w-[80px] justify-end">
-        {isAutoPackLoading && (
+        {(isAutoPackLoading || isGeneratingPDF) && (
           <div className="flex items-center gap-2">
             <div className="animate-spin w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full" />
-            <span className="text-xs text-gray-400">Processing...</span>
+            <span className="text-xs text-gray-400">
+              {isGeneratingPDF ? 'Generating PDF...' : 'Processing...'}
+            </span>
           </div>
         )}
         <div className="text-xs text-gray-500">
