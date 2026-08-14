@@ -47,6 +47,11 @@ export interface PackResult {
   totalWeight: number;
 }
 
+export interface PackPreferences {
+  preferredRotations?: Record<string, { rotX: number; rotY: number; rotZ: number }>;
+  preferredProductOrder?: string[];
+}
+
 export interface ContainerDims {
   length: number;
   width: number;
@@ -77,8 +82,18 @@ interface Orientation {
   rotZ: number;
 }
 
-/** Generate valid orientation permutations for a box given constraints. */
-function getOrientations(item: PackItem): Orientation[] {
+/**
+ * Generate valid orientation permutations for a box given constraints.
+ *
+ * Rules:
+ *  - thisSideUp = true, canBeLaidDown = false -> ONLY upright orientations
+ *    (never laid down, never flipped upside down).
+ *  - thisSideUp = true, canBeLaidDown = true  -> upright OR laid on a side
+ *    face, but NEVER flipped upside down (the original "up" face must
+ *    always end up pointing away from the ground).
+ *  - thisSideUp = false -> fully free rotation, including upside down.
+ */
+function getOrientations(item: PackItem, preferences?: PackPreferences): Orientation[] {
   const { length: l, width: w, height: h, thisSideUp, canBeLaidDown } = item;
   const orientations: Orientation[] = [];
 
@@ -90,22 +105,52 @@ function getOrientations(item: PackItem): Orientation[] {
     orientations.push({ length: w, width: l, height: h, rotX: 0, rotY: 90, rotZ: 0 });
   }
 
-  // Non-upright orientations: only if NOT this_side_up AND can_be_laid_down
-  if (!thisSideUp && canBeLaidDown) {
-    orientations.push({ length: l, width: h, height: w, rotX: 90, rotY: 0, rotZ: 0 });
-    orientations.push({ length: h, width: w, height: l, rotX: 0, rotY: 0, rotZ: 90 });
-    // + their 90° Y rotations
-    orientations.push({ length: h, width: l, height: w, rotX: 90, rotY: 90, rotZ: 0 });
-    orientations.push({ length: w, width: h, height: l, rotX: 0, rotY: 90, rotZ: 90 });
+  if (!thisSideUp) {
+    // No "up face" restriction: every orientation is allowed, including
+    // laid down on any side AND fully flipped upside down.
+    orientations.push(
+      { length: l, width: h, height: w, rotX: 90, rotY: 0, rotZ: 0 },
+      { length: h, width: w, height: l, rotX: 0, rotY: 0, rotZ: 90 },
+      { length: h, width: l, height: w, rotX: 90, rotY: 90, rotZ: 0 },
+      { length: w, width: h, height: l, rotX: 0, rotY: 90, rotZ: 90 },
+      // 180° flips (upside down)
+      { length: l, width: w, height: h, rotX: 180, rotY: 0, rotZ: 0 },
+      { length: w, width: l, height: h, rotX: 180, rotY: 90, rotZ: 0 },
+    );
+  } else if (canBeLaidDown) {
+    // May lie on a side face (90° tip), but never a 180° flip — the
+    // original top face must always stay facing up/outward.
+    orientations.push(
+      { length: l, width: h, height: w, rotX: 90, rotY: 0, rotZ: 0 },
+      { length: h, width: w, height: l, rotX: 0, rotY: 0, rotZ: 90 },
+      { length: h, width: l, height: w, rotX: 90, rotY: 90, rotZ: 0 },
+      { length: w, width: h, height: l, rotX: 0, rotY: 90, rotZ: 90 },
+    );
   }
+  // else: thisSideUp && !canBeLaidDown -> only the two upright
+  // orientations pushed above are allowed.
 
   // De-duplicate identical footprints
   const seen = new Set<string>();
-  return orientations.filter((o) => {
+  const unique = orientations.filter((o) => {
     const key = `${o.length}x${o.width}x${o.height}|${o.rotX}|${o.rotY}|${o.rotZ}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
+  });
+
+  const preferred = preferences?.preferredRotations?.[item.productId];
+  if (!preferred) return unique;
+
+  // Put the AI-preferred orientation first. The local geometry solver still
+  // validates the fit/support and is free to choose another legal orientation
+  // when the preferred one does not fit.
+  return [...unique].sort((a, b) => {
+    const score = (o: Orientation) =>
+      o.rotX === preferred.rotX &&
+      o.rotY === preferred.rotY &&
+      o.rotZ === preferred.rotZ ? 0 : 1;
+    return score(a) - score(b);
   });
 }
 
@@ -168,7 +213,7 @@ function pruneSpaces(spaces: Space[], x: number, y: number, z: number, dims: Ori
 /**
  * Run bin packing for a set of product lines into one container.
  */
-export function packContainer(container: ContainerDims, items: PackItem[]): PackResult {
+export function packContainer(container: ContainerDims, items: PackItem[], preferences?: PackPreferences): PackResult {
   let spaces = [new Space(0, 0, 0, container.length, container.width, container.height)];
   const placed: PlacedItem[] = [];
   const unplaced: Array<{ productId: string; qty: number }> = [];
@@ -195,13 +240,28 @@ export function packContainer(container: ContainerDims, items: PackItem[]): Pack
         expanded.push({ ...item, instanceNo: i });
       }
     }
-    expanded.sort((a, b) => b.length * b.width * b.height - a.length * a.width * a.height);
+    const preferredOrder = new Map(
+      (preferences?.preferredProductOrder || []).map((id, index) => [id, index])
+    );
+
+    expanded.sort((a, b) => {
+      const aOrder = preferredOrder.has(a.productId)
+        ? preferredOrder.get(a.productId)!
+        : Number.MAX_SAFE_INTEGER;
+      const bOrder = preferredOrder.has(b.productId)
+        ? preferredOrder.get(b.productId)!
+        : Number.MAX_SAFE_INTEGER;
+
+      if (aOrder !== bOrder) return aOrder - bOrder;
+
+      return b.length * b.width * b.height - a.length * a.width * a.height;
+    });
     return expanded;
   }
 
   function placeItems(expanded: Array<PackItem & { instanceNo: number }>) {
     for (const item of expanded) {
-      const orientations = getOrientations(item);
+      const orientations = getOrientations(item, preferences);
       let bestSpaceIdx = -1;
       let bestOrientation: Orientation | null = null;
       let bestScore = Infinity;

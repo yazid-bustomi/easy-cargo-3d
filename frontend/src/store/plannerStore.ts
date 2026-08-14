@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import * as THREE from 'three';
 import { aiPackContainer } from '../utils/aiPackService';
 
@@ -55,6 +56,9 @@ export interface LayoutItem {
   weight_kg: number;
   color_hex: string;
   this_side_up: boolean;
+  can_be_laid_down: boolean;
+  stackable: boolean;
+  must_be_on_top: boolean;
 }
 
 export interface ProjectConfig {
@@ -75,6 +79,106 @@ export interface LayoutStats {
 // ── Physics & Collision Helpers ──────────────────────────────────────
 
 const TOLERANCE = 0.01;
+
+/**
+ * Centralized orientation rules — every place that needs "which
+ * orientations are this item allowed to be placed in" must go through
+ * this function so the three constraint flags are interpreted the
+ * same way everywhere (auto-pack, manual placement zones, and manual
+ * right-click rotation).
+ *
+ * Rules (as specified by the product owner):
+ *  - this_side_up = true  -> the box's original "up" face must always
+ *                             face up. It must NEVER be flipped upside
+ *                             down or rotated onto its side.
+ *  - this_side_up = true AND can_be_laid_down = true -> the box MAY be
+ *                             laid on its side (rotated 90° so a side
+ *                             face becomes the "floor"), but it must
+ *                             never be turned upside down. Both the
+ *                             standing orientation and the laid-down
+ *                             orientation keep the original "up" face
+ *                             pointing away from the ground, never
+ *                             flipped/inverted.
+ *  - this_side_up = false -> item can be freely rotated on any axis
+ *                             (both laid down and flipped), independent
+ *                             of can_be_laid_down.
+ */
+export interface OrientationOption {
+  l: number; w: number; h: number;
+  rx: number; ry: number; rz: number;
+}
+
+export function getAllowedOrientations(
+  origL: number, origW: number, origH: number,
+  thisSideUp: boolean, canBeLaidDown: boolean
+): OrientationOption[] {
+  const orientations: OrientationOption[] = [
+    // Upright, facing the original direction
+    { l: origL, w: origW, h: origH, rx: 0, ry: 0, rz: 0 },
+    // Upright, rotated 90° around the vertical (Y) axis — always safe,
+    // it never changes which face is up.
+    { l: origW, w: origL, h: origH, rx: 0, ry: 90, rz: 0 },
+  ];
+
+  if (!thisSideUp) {
+    // No "up face" restriction at all: every orientation, including
+    // upside-down, is allowed.
+    orientations.push(
+      { l: origL, w: origH, h: origW, rx: 90, ry: 0, rz: 0 },
+      { l: origH, w: origW, h: origL, rx: 0, ry: 0, rz: 90 },
+      { l: origW, w: origH, h: origL, rx: 90, ry: 0, rz: 90 },
+      { l: origH, w: origL, h: origW, rx: 0, ry: 90, rz: 90 },
+      // 180° flips (upside down) at various headings
+      { l: origL, w: origW, h: origH, rx: 180, ry: 0, rz: 0 },
+      { l: origW, w: origL, h: origH, rx: 180, ry: 90, rz: 0 },
+    );
+  } else if (canBeLaidDown) {
+    // Allowed to lie on a side face, but the original "up" face must
+    // keep pointing outward/up — i.e. only 90° tips, never a 180° flip.
+    orientations.push(
+      { l: origL, w: origH, h: origW, rx: 90, ry: 0, rz: 0 },
+      { l: origH, w: origW, h: origL, rx: 0, ry: 0, rz: 90 },
+      { l: origW, w: origH, h: origL, rx: 90, ry: 0, rz: 90 },
+      { l: origH, w: origL, h: origW, rx: 0, ry: 90, rz: 90 },
+    );
+  }
+  // else: thisSideUp && !canBeLaidDown -> only the two upright
+  // orientations above are allowed (never laid down, never flipped).
+
+  // De-duplicate identical (footprint + rotation) combinations
+  const seen = new Set<string>();
+  return orientations.filter((o) => {
+    const key = `${o.l}x${o.w}x${o.h}|${o.rx}|${o.ry}|${o.rz}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Whether a specific rotation (in degrees, Euler XYZ as stored on
+ * LayoutItem) is allowed for an item with the given constraints.
+ * Used to validate manual right-click rotation.
+ */
+export function isRotationAllowed(
+  rotXDeg: number, rotYDeg: number, rotZDeg: number,
+  thisSideUp: boolean, canBeLaidDown: boolean
+): boolean {
+  const norm = (d: number) => ((Math.round(d / 90) * 90) % 360 + 360) % 360;
+  const rx = norm(rotXDeg);
+  const rz = norm(rotZDeg);
+
+  if (!thisSideUp) return true; // no restriction at all
+
+  // this_side_up: the "up" face may only be reached by 0° or 90° tips
+  // on X/Z (never 180°, which would flip it upside down).
+  const isUpright = rx === 0 && rz === 0;
+  const isNinetyTip = (rx === 90 || rx === 270 || rz === 90 || rz === 270) && !(rx !== 0 && rz !== 0);
+
+  if (isUpright) return true;
+  if (canBeLaidDown && isNinetyTip) return true;
+  return false;
+}
 
 export function checkCollision(
   testItem: { id?: string; pos_x: number; pos_y: number; pos_z: number; length_cm: number; height_cm: number; width_cm: number },
@@ -188,6 +292,10 @@ export function checkFullSupport(
 
     const topY = other.pos_y + other.height_cm;
     if (Math.abs(topY - y) <= TOLERANCE) {
+      // An item marked non-stackable (e.g. a thin-legged table) can
+      // never provide support for something resting on top of it.
+      if (other.stackable === false) continue;
+
       const oxMin = other.pos_x;
       const oxMax = other.pos_x + other.length_cm;
       const ozMin = other.pos_z;
@@ -205,6 +313,20 @@ export function checkFullSupport(
   }
 
   return supportedArea >= totalArea * 0.99;
+}
+
+/**
+ * Whether it's valid for something to rest ON TOP of `below` at all.
+ *  - stackable = false  -> nothing may be placed above it (e.g. a table
+ *                          with thin legs — items on top would crush it
+ *                          or simply have nothing solid to rest on).
+ *  - must_be_on_top = true on the item being placed -> that item must
+ *                          sit at the highest free position for its
+ *                          footprint (checked separately in the
+ *                          placement search, not here).
+ */
+export function canRestOn(below: { stackable: boolean }): boolean {
+  return below.stackable !== false;
 }
 
 // ── Column Grouping ──────────────────────────────────────────────────
@@ -278,19 +400,11 @@ export function calculatePlacementZones(
   const oW = product.width_cm;
   const oH = product.height_cm;
 
-  const orientations = [
-    { l: oL, w: oW, h: oH, rx: 0, ry: 0, rz: 0 },
-    { l: oW, w: oL, h: oH, rx: 0, ry: 90, rz: 0 },
-  ];
-
-  if (!selectedItem.this_side_up) {
-    orientations.push(
-      { l: oL, w: oH, h: oW, rx: 90, ry: 0, rz: 0 },
-      { l: oH, w: oW, h: oL, rx: 0, ry: 0, rz: 90 },
-      { l: oW, w: oH, h: oL, rx: 90, ry: 0, rz: 90 },
-      { l: oH, w: oL, h: oW, rx: 0, ry: 90, rz: 90 }
-    );
-  }
+  const orientations = getAllowedOrientations(
+    oL, oW, oH,
+    selectedItem.this_side_up,
+    selectedItem.can_be_laid_down
+  ).map(o => ({ l: o.l, w: o.w, h: o.h, rx: o.rx, ry: o.ry, rz: o.rz }));
 
   const filteredItems = allItems.filter(i => !ignoreIds.includes(i.id));
 
@@ -384,6 +498,109 @@ export function genId(): string {
 
 export type RotateDirection = 'spin-right' | 'spin-left' | 'tip-forward' | 'tip-backward' | 'tip-right' | 'tip-left';
 
+
+// ── Rotation placement helper ─────────────────────────────────────────
+// When a product is tipped/laid down, its footprint can grow into another
+// item even though there is free space a little behind/in front/side of it.
+// Search nearby X/Z positions instead of failing immediately at the old spot.
+function findNearestValidPlacement(
+  item: LayoutItem,
+  testL: number,
+  testW: number,
+  testH: number,
+  container: ContainerType,
+  allItems: LayoutItem[],
+): { x: number; y: number; z: number } | null {
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+  const maxX = container.length_cm - testL;
+  const maxZ = container.width_cm - testW;
+  if (maxX < -TOLERANCE || maxZ < -TOLERANCE || testH > container.height_cm + TOLERANCE) {
+    return null;
+  }
+
+  const startX = clamp(item.pos_x, 0, Math.max(0, maxX));
+  const startZ = clamp(item.pos_z, 0, Math.max(0, maxZ));
+
+  const candidates = new Map<string, { x: number; z: number; d2: number }>();
+  const addCandidate = (x: number, z: number) => {
+    x = clamp(x, 0, Math.max(0, maxX));
+    z = clamp(z, 0, Math.max(0, maxZ));
+    const key = `${Math.round(x * 100) / 100}|${Math.round(z * 100) / 100}`;
+    if (!candidates.has(key)) {
+      const dx = x - startX;
+      const dz = z - startZ;
+      candidates.set(key, { x, z, d2: dx * dx + dz * dz });
+    }
+  };
+
+  // First test the original position.
+  addCandidate(startX, startZ);
+
+  // Search outward. A 5 cm grid gives smooth movement while remaining
+  // practical for furniture-sized boxes.
+  const maxRadius = Math.min(
+    Math.max(container.length_cm, container.width_cm),
+    300,
+  );
+  for (let r = 5; r <= maxRadius; r += 5) {
+    addCandidate(startX - r, startZ);
+    addCandidate(startX + r, startZ);
+    addCandidate(startX, startZ - r);
+    addCandidate(startX, startZ + r);
+    addCandidate(startX - r, startZ - r);
+    addCandidate(startX + r, startZ - r);
+    addCandidate(startX - r, startZ + r);
+    addCandidate(startX + r, startZ + r);
+    if (r >= 100) break;
+  }
+
+  // Also try exact packing edges around existing products and container walls.
+  addCandidate(0, startZ);
+  addCandidate(maxX, startZ);
+  addCandidate(startX, 0);
+  addCandidate(startX, maxZ);
+
+  for (const other of allItems) {
+    if (other.id === item.id) continue;
+    addCandidate(other.pos_x - testL, other.pos_z);
+    addCandidate(other.pos_x + other.length_cm, other.pos_z);
+    addCandidate(other.pos_x, other.pos_z - testW);
+    addCandidate(other.pos_x, other.pos_z + other.width_cm);
+  }
+
+  const ordered = [...candidates.values()].sort((a, b) => a.d2 - b.d2);
+
+  for (const c of ordered) {
+    const y = calculateDropY(
+      c.x,
+      c.z,
+      testL,
+      testW,
+      item.id,
+      allItems,
+    );
+
+    if (y + testH > container.height_cm + TOLERANCE) continue;
+
+    const testItem = {
+      ...item,
+      pos_x: c.x,
+      pos_y: y,
+      pos_z: c.z,
+      length_cm: testL,
+      width_cm: testW,
+      height_cm: testH,
+    };
+
+    if (checkCollision(testItem, allItems, container)) continue;
+    if (!checkFullSupport(c.x, y, c.z, testL, testW, item.id, allItems)) continue;
+
+    return { x: c.x, y, z: c.z };
+  }
+
+  return null;
+}
+
 // ── Store ────────────────────────────────────────────────────────────
 
 export interface PlannerState {
@@ -402,6 +619,10 @@ export interface PlannerState {
   aiApiKey: string;
   aiProvider: 'gemini' | 'openai';
   isGeneratingReport: boolean;
+  transparentBackground: boolean;
+  viewRotateLocked: boolean;
+  debugOverlayVisible: boolean;
+  lastSavedAt: number | null;
 
   setProjectPhase: (phase: 'setup' | 'working') => void;
   setProjectConfig: (config: ProjectConfig) => void;
@@ -434,12 +655,18 @@ export interface PlannerState {
   setAiApiKey: (key: string) => void;
   setAiProvider: (provider: 'gemini' | 'openai') => void;
   setIsGeneratingReport: (val: boolean) => void;
+  setTransparentBackground: (val: boolean) => void;
+  setViewRotateLocked: (val: boolean) => void;
+  setDebugOverlayVisible: (val: boolean) => void;
+  markSaved: () => void;
   autoPackAll: () => void;
   aiAutoPack: (customPrompt?: string) => Promise<void>;
   getLayoutStats: () => LayoutStats;
 }
 
-export const usePlannerStore = create<PlannerState>((set, get) => ({
+export const usePlannerStore = create<PlannerState>()(
+  persist(
+    (set, get) => ({
   projectPhase: 'setup',
   projectConfig: null,
   products: [],
@@ -455,6 +682,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   aiApiKey: '',
   aiProvider: 'gemini' as const,
   isGeneratingReport: false,
+  transparentBackground: false,
+  viewRotateLocked: false,
+  // For production, either flip this to `false`, or leave it and rely
+  // on the in-app Shift+D shortcut to hide it — either works, no other
+  // code needs to change.
+  debugOverlayVisible: true,
+  lastSavedAt: null,
 
   setProjectPhase: (phase) => set({ projectPhase: phase }),
 
@@ -540,6 +774,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           product_name: product.name,
           color_hex: product.color_hex,
           this_side_up: product.this_side_up,
+          can_be_laid_down: product.can_be_laid_down,
+          stackable: product.stackable,
+          must_be_on_top: product.must_be_on_top,
           length_cm: product.length_cm,
           width_cm: product.width_cm,
           height_cm: product.height_cm,
@@ -578,56 +815,124 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       const product = state.products.find((p) => p.id === productId);
       if (!product || !state.projectConfig) return state;
 
-      const insertedCount = state.layoutItems.filter(i => i.product_id === productId).length;
+      const insertedCount = state.layoutItems.filter((i) => i.product_id === productId).length;
       if (insertedCount >= product.qty) return state;
 
       const container = state.projectConfig.containerType;
 
-      // Try multiple orientations
-      const orientations: Array<{ l: number; w: number; h: number; rx: number; ry: number; rz: number }> = [
-        // Default orientation (lying flat)
-        { l: product.length_cm, w: product.width_cm, h: product.height_cm, rx: 0, ry: 0, rz: 0 },
-        // Rotated 90° horizontally
-        { l: product.width_cm, w: product.length_cm, h: product.height_cm, rx: 0, ry: 90, rz: 0 },
-      ];
+      const orientations = getAllowedOrientations(
+        product.length_cm,
+        product.width_cm,
+        product.height_cm,
+        product.this_side_up,
+        product.can_be_laid_down,
+      );
 
-      // Only add standing orientations if this_side_up is NOT set
-      if (!product.this_side_up) {
-        orientations.push(
-          // Standing on width side
-          { l: product.length_cm, w: product.height_cm, h: product.width_cm, rx: 90, ry: 0, rz: 0 },
-          // Standing on length side
-          { l: product.height_cm, w: product.width_cm, h: product.length_cm, rx: 0, ry: 0, rz: 90 },
-        );
-      }
+      // Coordinate-compression candidates: use exact existing product edges
+      // instead of a fixed 2 cm grid. This guarantees zero-gap placement
+      // from the front-left corner and between neighboring products.
+      let bestResult: {
+        x: number;
+        y: number;
+        z: number;
+        oi: number;
+        score: [number, number, number];
+      } | null = null;
 
-      const step = 2;
-      let bestResult: { x: number; y: number; z: number; oi: number } | null = null;
-      let lowestY = Infinity;
+      const addCandidate = (set: Set<number>, value: number, max: number) => {
+        if (value >= -TOLERANCE && value <= max + TOLERANCE) {
+          set.add(Math.max(0, Math.min(max, value)));
+        }
+      };
 
       for (let oi = 0; oi < orientations.length; oi++) {
         const { l, w, h } = orientations[oi];
-        
-        if (l > container.length_cm || w > container.width_cm || h > container.height_cm) continue;
+        if (
+          l > container.length_cm ||
+          w > container.width_cm ||
+          h > container.height_cm
+        ) {
+          continue;
+        }
 
-        for (let x = 0; x <= container.length_cm - l; x += step) {
-          for (let z = 0; z <= container.width_cm - w; z += step) {
-            const dropY = calculateDropY(x, z, l, w, undefined, state.layoutItems);
-            
-            if (dropY + h > container.height_cm) continue;
-            if (dropY >= lowestY) continue;
-            if (!checkFullSupport(x, dropY, z, l, w, undefined, state.layoutItems)) continue;
+        const xSet = new Set<number>();
+        const zSet = new Set<number>();
+        const maxX = container.length_cm - l;
+        const maxZ = container.width_cm - w;
 
-            const testItem = { pos_x: x, pos_y: dropY, pos_z: z, length_cm: l, width_cm: w, height_cm: h };
-            if (!checkCollision(testItem, state.layoutItems, container)) {
-              lowestY = dropY;
-              bestResult = { x, y: dropY, z, oi };
-              if (lowestY === 0) break;
+        addCandidate(xSet, 0, maxX);
+        addCandidate(zSet, 0, maxZ);
+
+        for (const other of state.layoutItems) {
+          addCandidate(xSet, other.pos_x, maxX);
+          addCandidate(xSet, other.pos_x + other.length_cm, maxX);
+          addCandidate(xSet, other.pos_x - l, maxX);
+
+          addCandidate(zSet, other.pos_z, maxZ);
+          addCandidate(zSet, other.pos_z + other.width_cm, maxZ);
+          addCandidate(zSet, other.pos_z - w, maxZ);
+        }
+
+        const xCandidates = [...xSet].sort((a, b) => a - b);
+        const zCandidates = [...zSet].sort((a, b) => a - b);
+
+        for (const x of xCandidates) {
+          for (const z of zCandidates) {
+            const dropY = calculateDropY(
+              x,
+              z,
+              l,
+              w,
+              undefined,
+              state.layoutItems,
+            );
+
+            if (dropY + h > container.height_cm + TOLERANCE) continue;
+            if (!checkFullSupport(
+              x,
+              dropY,
+              z,
+              l,
+              w,
+              undefined,
+              state.layoutItems,
+            )) continue;
+
+            const testItem = {
+              pos_x: x,
+              pos_y: dropY,
+              pos_z: z,
+              length_cm: l,
+              width_cm: w,
+              height_cm: h,
+            };
+
+            if (checkCollision(testItem, state.layoutItems, container)) continue;
+
+            // Exact priority:
+            // 1. lowest layer
+            // 2. closest to front (X)
+            // 3. closest to left (Z)
+            const score: [number, number, number] = [dropY, x, z];
+
+            if (
+              !bestResult ||
+              score[0] < bestResult.score[0] - TOLERANCE ||
+              (
+                Math.abs(score[0] - bestResult.score[0]) <= TOLERANCE &&
+                (
+                  score[1] < bestResult.score[1] - TOLERANCE ||
+                  (
+                    Math.abs(score[1] - bestResult.score[1]) <= TOLERANCE &&
+                    score[2] < bestResult.score[2] - TOLERANCE
+                  )
+                )
+              )
+            ) {
+              bestResult = { x, y: dropY, z, oi, score };
             }
           }
-          if (bestResult && lowestY === 0) break;
         }
-        if (bestResult && lowestY === 0) break;
       }
 
       if (!bestResult) {
@@ -654,6 +959,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         weight_kg: product.weight_kg,
         color_hex: product.color_hex,
         this_side_up: product.this_side_up,
+        can_be_laid_down: product.can_be_laid_down,
+        stackable: product.stackable,
+        must_be_on_top: product.must_be_on_top,
       };
 
       const updatedItems = [...state.layoutItems, newItem];
@@ -704,100 +1012,133 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set((state) => {
       const item = state.layoutItems.find((i) => i.id === itemId);
       const container = state.projectConfig?.containerType;
-      const product = state.products.find(p => p.id === item?.product_id);
+      const product = state.products.find((p) => p.id === item?.product_id);
       if (!item || !container || !product) return state;
 
       const origL = product.length_cm;
       const origW = product.width_cm;
       const origH = product.height_cm;
 
-      // Current rotation as quaternion
-      const euler = new THREE.Euler(item.rot_x * Math.PI / 180, item.rot_y * Math.PI / 180, item.rot_z * Math.PI / 180, 'XYZ');
+      const euler = new THREE.Euler(
+        item.rot_x * Math.PI / 180,
+        item.rot_y * Math.PI / 180,
+        item.rot_z * Math.PI / 180,
+        'XYZ'
+      );
       const quaternion = new THREE.Quaternion().setFromEuler(euler);
 
-      // Apply relative rotation delta
       const deltaQ = new THREE.Quaternion();
       switch (direction) {
-        case 'spin-right': deltaQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2); break;
-        case 'spin-left': deltaQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); break;
-        case 'tip-forward': 
-          deltaQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2); 
+        case 'spin-right':
+          deltaQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
           break;
-        case 'tip-backward': 
-          deltaQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2); 
+        case 'spin-left':
+          deltaQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
           break;
-        case 'tip-right': 
-          deltaQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2); 
+        case 'tip-forward':
+          deltaQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
           break;
-        case 'tip-left': 
-          deltaQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2); 
+        case 'tip-backward':
+          deltaQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+          break;
+        case 'tip-right':
+          deltaQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
+          break;
+        case 'tip-left':
+          deltaQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
           break;
       }
-      
-      // We apply rotation in local space by multiplying quaternion
+
+      // Local-space rotation: keep the existing heading, then apply the
+      // requested 90-degree spin/tip.
       quaternion.multiply(deltaQ);
 
-      // Extract new Euler angles in degrees
       const newEuler = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
-      const newRotX = Math.round(newEuler.x * 180 / Math.PI);
-      const newRotY = Math.round(newEuler.y * 180 / Math.PI);
-      const newRotZ = Math.round(newEuler.z * 180 / Math.PI);
+      const normalizeDeg = (deg: number) => {
+        const n = Math.round(deg / 90) * 90;
+        return ((n % 360) + 360) % 360;
+      };
 
-      // Calculate new physical dimensions (AABB) based on the rotated original dimensions
+      const newRotX = normalizeDeg(newEuler.x * 180 / Math.PI);
+      const newRotY = normalizeDeg(newEuler.y * 180 / Math.PI);
+      const newRotZ = normalizeDeg(newEuler.z * 180 / Math.PI);
+
+      if (!isRotationAllowed(
+        newRotX,
+        newRotY,
+        newRotZ,
+        item.this_side_up,
+        item.can_be_laid_down,
+      )) {
+        return { contextMenu: null };
+      }
+
+      // Compute the new axis-aligned footprint after the rotation.
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
       const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
 
-      const testL = Math.round(Math.abs(right.x * origL) + Math.abs(up.x * origH) + Math.abs(forward.x * origW));
-      const testH = Math.round(Math.abs(right.y * origL) + Math.abs(up.y * origH) + Math.abs(forward.y * origW));
-      const testW = Math.round(Math.abs(right.z * origL) + Math.abs(up.z * origH) + Math.abs(forward.z * origW));
+      const testL = Math.round(
+        Math.abs(right.x * origL) +
+        Math.abs(up.x * origH) +
+        Math.abs(forward.x * origW)
+      );
+      const testH = Math.round(
+        Math.abs(right.y * origL) +
+        Math.abs(up.y * origH) +
+        Math.abs(forward.y * origW)
+      );
+      const testW = Math.round(
+        Math.abs(right.z * origL) +
+        Math.abs(up.z * origH) +
+        Math.abs(forward.z * origW)
+      );
 
-      let testX = item.pos_x;
-      let testZ = item.pos_z;
+      // Critical fix: do not require the rotated box to fit exactly where it
+      // stood before. Search the nearest valid X/Z position and drop it onto
+      // the floor / a fully supporting item. This allows a product in the
+      // middle of a layout to be laid down into free space behind it.
+      const placement = findNearestValidPlacement(
+        item,
+        testL,
+        testW,
+        testH,
+        container,
+        state.layoutItems,
+      );
 
-      // Auto-shift if exceeding bounds
-      if (testX + testL > container.length_cm) {
-        testX = container.length_cm - testL;
-      }
-      if (testZ + testW > container.width_cm) {
-        testZ = container.width_cm - testW;
-      }
-      if (testX < 0 || testZ < 0 || testL > container.length_cm || testW > container.width_cm || testH > container.height_cm) {
+      if (!placement) {
         return { contextMenu: null };
       }
 
-      // Calculate gravity drop at the new position with new dimensions
-      const dropY = calculateDropY(testX, testZ, testL, testW, item.id, state.layoutItems);
+      const updatedItems = state.layoutItems.map((i) =>
+        i.id === itemId
+          ? {
+              ...i,
+              pos_x: placement.x,
+              pos_y: placement.y,
+              pos_z: placement.z,
+              length_cm: testL,
+              width_cm: testW,
+              height_cm: testH,
+              rot_x: newRotX,
+              rot_y: newRotY,
+              rot_z: newRotZ,
+            }
+          : i
+      );
 
-      if (dropY + testH > container.height_cm) {
-        return { contextMenu: null };
-      }
-
-      const testItem = {
-        ...item,
-        pos_x: testX,
-        pos_y: dropY,
-        pos_z: testZ,
-        length_cm: testL,
-        width_cm: testW,
-        height_cm: testH,
-      };
-      
-      if (checkCollision(testItem, state.layoutItems, container)) {
-        return { contextMenu: null };
-      }
-
-      if (!checkFullSupport(testX, dropY, testZ, testL, testW, item.id, state.layoutItems)) {
-        return { contextMenu: null };
-      }
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      newHistory.push(JSON.parse(JSON.stringify(updatedItems)));
+      if (newHistory.length > 50) newHistory.shift();
 
       return {
-        layoutItems: state.layoutItems.map((i) =>
-          i.id === itemId
-            ? { ...i, pos_x: testX, pos_y: dropY, pos_z: testZ, length_cm: testL, width_cm: testW, height_cm: testH, rot_x: newRotX, rot_y: newRotY, rot_z: newRotZ }
-            : i
-        ),
+        layoutItems: updatedItems,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
         contextMenu: null,
+        selectedItemId: itemId,
+        selectedGroupIds: getColumnGroup(itemId, updatedItems),
       };
     }),
 
@@ -849,6 +1190,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   setAiApiKey: (key) => set({ aiApiKey: key }),
   setAiProvider: (provider) => set({ aiProvider: provider }),
   setIsGeneratingReport: (val) => set({ isGeneratingReport: val }),
+  setTransparentBackground: (val) => set({ transparentBackground: val }),
+  setViewRotateLocked: (val) => set({ viewRotateLocked: val }),
+  setDebugOverlayVisible: (val) => set({ debugOverlayVisible: val }),
+  markSaved: () => set({ lastSavedAt: Date.now() }),
 
   autoPackAll: () => {
     const state = get();
@@ -907,6 +1252,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             weight_kg: product?.weight_kg || 0,
             color_hex: product?.color_hex || '#fde047',
             this_side_up: product?.this_side_up || false,
+            can_be_laid_down: product?.can_be_laid_down ?? true,
+            stackable: product?.stackable ?? true,
+            must_be_on_top: product?.must_be_on_top || false,
           };
         });
 
@@ -978,7 +1326,54 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         customPrompt
       );
 
-      const newLayoutItems: LayoutItem[] = result.placed.map((p: any) => {
+      // Gemini is used as a planning layer. It suggests an orientation and
+      // product order; the deterministic local packer is the final executor.
+      // This prevents an LLM-generated coordinate from ever creating overlap,
+      // floating items, or boxes outside the container.
+      const preferredRotations: Record<string, { rotX: number; rotY: number; rotZ: number }> = {};
+      const preferredProductOrder: string[] = [];
+
+      for (const planned of result.placed || []) {
+        if (!preferredProductOrder.includes(planned.productId)) {
+          preferredProductOrder.push(planned.productId);
+        }
+
+        const product = state.products.find(prod => prod.id === planned.productId);
+        if (!product) continue;
+
+        const rotX = Number(planned.rotX) || 0;
+        const rotY = Number(planned.rotY) || 0;
+        const rotZ = Number(planned.rotZ) || 0;
+
+        if (isRotationAllowed(
+          rotX,
+          rotY,
+          rotZ,
+          product.this_side_up,
+          product.can_be_laid_down,
+        )) {
+          preferredRotations[planned.productId] = {
+            rotX: ((Math.round(rotX / 90) * 90) % 360 + 360) % 360,
+            rotY: ((Math.round(rotY / 90) * 90) % 360 + 360) % 360,
+            rotZ: ((Math.round(rotZ / 90) * 90) % 360 + 360) % 360,
+          };
+        }
+      }
+
+      const { packContainer } = require('../utils/binPacking');
+
+      const deterministicResult = packContainer(
+        {
+          length: container.length_cm,
+          width: container.width_cm,
+          height: container.height_cm,
+          maxPayloadKg: container.max_payload_kg,
+        },
+        packItems,
+        { preferredRotations, preferredProductOrder }
+      );
+
+      const newLayoutItems: LayoutItem[] = deterministicResult.placed.map((p: any) => {
         const product = state.products.find(prod => prod.id === p.productId);
         return {
           id: genId(),
@@ -997,11 +1392,15 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           weight_kg: product?.weight_kg || 0,
           color_hex: product?.color_hex || '#fde047',
           this_side_up: product?.this_side_up || false,
+          can_be_laid_down: product?.can_be_laid_down ?? true,
+          stackable: product?.stackable ?? true,
+          must_be_on_top: product?.must_be_on_top || false,
         };
       });
 
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(JSON.parse(JSON.stringify(newLayoutItems)));
+      if (newHistory.length > 50) newHistory.shift();
 
       set({
         layoutItems: newLayoutItems,
@@ -1012,14 +1411,17 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         selectedGroupIds: [],
       });
 
-      if (result.unplaced && result.unplaced.length > 0) {
-        const unplacedNames = result.unplaced.map((u: any) => {
+      if (deterministicResult.unplaced.length > 0) {
+        const uniqueNames = deterministicResult.unplaced.map((u: any) => {
           const prod = state.products.find(prod => prod.id === u.productId);
           return `${prod?.name || u.productId} (${u.qty} pcs)`;
         }).join(', ');
-        alert(`AI Pack selesai!\n\nTidak muat: ${unplacedNames}`);
+        alert(
+          `AI Pack selesai dengan validasi geometris.\n\nTidak muat: ${uniqueNames}\n\n` +
+          `Gemini dipakai untuk memilih orientasi/urutan; posisi final dihitung oleh solver lokal.`
+        );
       } else {
-        alert('AI Pack berhasil mengatur semua barang!');
+        alert('AI Pack berhasil mengatur semua barang ke dalam container.');
       }
     } catch (error: any) {
       console.error('AI Auto Pack error:', error);
@@ -1061,4 +1463,24 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       freeMeters: freeMeters > 0 ? freeMeters : 0,
     };
   },
-}));
+  }),
+    {
+      name: 'easycargo3d-planner-v2',
+      version: 2,
+      partialize: (state) => ({
+        projectPhase: state.projectPhase,
+        projectConfig: state.projectConfig,
+        products: state.products,
+        layoutItems: state.layoutItems,
+        selectedItemId: state.selectedItemId,
+        selectedGroupIds: state.selectedGroupIds,
+        cameraView: 'default' as const,
+        aiProvider: state.aiProvider,
+        transparentBackground: false,
+        viewRotateLocked: state.viewRotateLocked,
+        debugOverlayVisible: state.debugOverlayVisible,
+        lastSavedAt: state.lastSavedAt,
+      }),
+    }
+  )
+);
