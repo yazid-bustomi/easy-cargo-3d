@@ -329,6 +329,84 @@ export function canRestOn(below: { stackable: boolean }): boolean {
   return below.stackable !== false;
 }
 
+// ── Keyboard Nudge (Ctrl+Arrow) ──────────────────────────────────────
+
+// Distance (cm) a single Ctrl+Arrow press slides the selected product.
+const NUDGE_STEP_CM = 5;
+
+/**
+ * Maximum distance an item can slide along a single horizontal axis
+ * ("x" = container length, "z" = container width) in the given
+ * direction before it would overlap the container wall or another
+ * item. Only the perpendicular footprint + the vertical (Y) band are
+ * checked, since sliding only ever changes one horizontal coordinate
+ * and never the item's height/position on the Y axis.
+ *
+ * Used by nudgeItem so a keyboard slide always clamps to the nearest
+ * obstacle instead of overshooting into it — the item lands flush
+ * ("nempel") against the wall/neighbor exactly when it gets there.
+ */
+function computeMaxSlideDistance(
+  item: LayoutItem,
+  axis: 'x' | 'z',
+  direction: 1 | -1,
+  container: ContainerType,
+  allItems: LayoutItem[],
+  excludeIds: string[]
+): number {
+  const yMin = item.pos_y;
+  const yMax = item.pos_y + item.height_cm;
+
+  let limit: number;
+  if (axis === 'x') {
+    limit = direction > 0
+      ? container.length_cm - (item.pos_x + item.length_cm)
+      : item.pos_x;
+  } else {
+    limit = direction > 0
+      ? container.width_cm - (item.pos_z + item.width_cm)
+      : item.pos_z;
+  }
+  if (limit < 0) limit = 0;
+
+  for (const other of allItems) {
+    if (excludeIds.includes(other.id)) continue;
+
+    const oyMin = other.pos_y;
+    const oyMax = other.pos_y + other.height_cm;
+    const yOverlap = yMin + TOLERANCE < oyMax && yMax - TOLERANCE > oyMin;
+    if (!yOverlap) continue;
+
+    if (axis === 'x') {
+      const zMin = item.pos_z, zMax = item.pos_z + item.width_cm;
+      const ozMin = other.pos_z, ozMax = other.pos_z + other.width_cm;
+      const zOverlap = zMin + TOLERANCE < ozMax && zMax - TOLERANCE > ozMin;
+      if (!zOverlap) continue;
+
+      const gap = direction > 0
+        ? other.pos_x - (item.pos_x + item.length_cm)
+        : item.pos_x - (other.pos_x + other.length_cm);
+      if (gap >= -TOLERANCE) {
+        limit = Math.min(limit, Math.max(0, gap));
+      }
+    } else {
+      const xMin = item.pos_x, xMax = item.pos_x + item.length_cm;
+      const oxMin = other.pos_x, oxMax = other.pos_x + other.length_cm;
+      const xOverlap = xMin + TOLERANCE < oxMax && xMax - TOLERANCE > oxMin;
+      if (!xOverlap) continue;
+
+      const gap = direction > 0
+        ? other.pos_z - (item.pos_z + item.width_cm)
+        : item.pos_z - (other.pos_z + other.width_cm);
+      if (gap >= -TOLERANCE) {
+        limit = Math.min(limit, Math.max(0, gap));
+      }
+    }
+  }
+
+  return limit;
+}
+
 // ── Column Grouping ──────────────────────────────────────────────────
 
 export function getColumnGroup(itemId: string, allItems: LayoutItem[]): string[] {
@@ -646,6 +724,7 @@ export interface PlannerState {
   hideContextMenu: () => void;
 
   rotateItem: (itemId: string, direction: RotateDirection) => void;
+  nudgeItem: (itemId: string, axis: 'x' | 'z', direction: 1 | -1) => void;
 
   pushToHistory: () => void;
   undo: () => void;
@@ -1139,6 +1218,40 @@ export const usePlannerStore = create<PlannerState>()(
         contextMenu: null,
         selectedItemId: itemId,
         selectedGroupIds: getColumnGroup(itemId, updatedItems),
+      };
+    }),
+
+  nudgeItem: (itemId, axis, direction) =>
+    set((state) => {
+      const container = state.projectConfig?.containerType;
+      const item = state.layoutItems.find((i) => i.id === itemId);
+      if (!item || !container) return state;
+
+      const maxSlide = computeMaxSlideDistance(
+        item, axis, direction, container, state.layoutItems, [itemId]
+      );
+      // Already flush against the wall/neighbor in this direction —
+      // nothing to do.
+      if (maxSlide <= TOLERANCE) return state;
+
+      const delta = Math.min(NUDGE_STEP_CM, maxSlide);
+
+      const updatedItems = state.layoutItems.map((i) =>
+        i.id === itemId
+          ? axis === 'x'
+            ? { ...i, pos_x: Math.round((i.pos_x + direction * delta) * 100) / 100 }
+            : { ...i, pos_z: Math.round((i.pos_z + direction * delta) * 100) / 100 }
+          : i
+      );
+
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      newHistory.push(JSON.parse(JSON.stringify(updatedItems)));
+      if (newHistory.length > 50) newHistory.shift();
+
+      return {
+        layoutItems: updatedItems,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
       };
     }),
 

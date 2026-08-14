@@ -930,12 +930,113 @@ export function ContainerViewer3D() {
     setDebugOverlayVisible,
   } = usePlannerStore();
 
+  // Keyboard controls for the selected product:
+  //  - Esc                 -> deselect (same as clicking the product
+  //                            again / clicking empty space)
+  //  - Delete / Backspace   -> remove the selected product (+ its
+  //                            stacked column, same set the right-click
+  //                            "Delete" menu removes)
+  //  - Arrow Up/Down/L/R    -> tip/roll the product (same 6 rotations
+  //                            as the right-click rotate menu)
+  //  - Shift + Arrow        -> spin 90° around the vertical axis only
+  //                            (heading change, e.g. east-west becomes
+  //                            north-south — footprint/height unchanged)
+  //  - Ctrl/Cmd + Arrow     -> slide the product across the floor,
+  //                            clamped so it lands flush ("nempel")
+  //                            against the wall/neighbor instead of
+  //                            overlapping it
   useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target.isContentEditable
+      );
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.shiftKey && (e.key === "D" || e.key === "d")) {
         setDebugOverlayVisible(!usePlannerStore.getState().debugOverlayVisible);
+        return;
       }
+
+      if (isTypingTarget(e.target)) return;
+
+      const state = usePlannerStore.getState();
+
+      // Esc — cancel current selection, same as clicking the product
+      // again / clicking empty space to deselect.
+      if (e.key === "Escape") {
+        if (state.isPlacing) {
+          state.setPlacing(false);
+        }
+        state.selectItem(null);
+        state.hideContextMenu();
+        return;
+      }
+
+      // Everything below acts on the selected product. Note: selecting a
+      // product (a single click) already puts it into "isPlacing" mode
+      // (see handleSelect above), so we must NOT skip on isPlacing here —
+      // that would block keyboard control almost every time something is
+      // selected. Delete/rotate/nudge are safe to run in that mode too;
+      // if the item is currently being drag-placed with the mouse, a
+      // keyboard action here simply updates its position/rotation same
+      // as a mouse drop would.
+      if (!state.selectedItemId) return;
+
+      const itemId = state.selectedItemId;
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        const idsToRemove =
+          state.selectedGroupIds.length > 0 ? state.selectedGroupIds : [itemId];
+        const newItems = state.layoutItems.filter(
+          (i) => !idsToRemove.includes(i.id),
+        );
+        usePlannerStore.setState({
+          layoutItems: newItems,
+          selectedItemId: null,
+          selectedGroupIds: [],
+          contextMenu: null,
+        });
+        state.pushToHistory();
+        return;
+      }
+
+      const arrowKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+      if (!arrowKeys.includes(e.key)) return;
+      e.preventDefault();
+
+      // Ctrl/Cmd + Arrow — slide across the floor.
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === "ArrowRight") state.nudgeItem(itemId, "x", 1);
+        else if (e.key === "ArrowLeft") state.nudgeItem(itemId, "x", -1);
+        else if (e.key === "ArrowUp") state.nudgeItem(itemId, "z", -1);
+        else if (e.key === "ArrowDown") state.nudgeItem(itemId, "z", 1);
+        return;
+      }
+
+      // Shift + Arrow — spin the heading only (90° around vertical axis).
+      if (e.shiftKey) {
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+          state.rotateItem(itemId, "spin-right");
+        } else {
+          state.rotateItem(itemId, "spin-left");
+        }
+        return;
+      }
+
+      // Plain Arrow — tip/roll onto a side or back upright.
+      if (e.key === "ArrowUp") state.rotateItem(itemId, "tip-forward");
+      else if (e.key === "ArrowDown") state.rotateItem(itemId, "tip-backward");
+      else if (e.key === "ArrowRight") state.rotateItem(itemId, "tip-right");
+      else if (e.key === "ArrowLeft") state.rotateItem(itemId, "tip-left");
     };
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [setDebugOverlayVisible]);

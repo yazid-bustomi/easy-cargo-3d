@@ -11,9 +11,12 @@ import {
   X,
   Lock,
   Unlock,
+  ImagePlus,
+  Check,
 } from "lucide-react";
 import { usePlannerStore } from "../store/plannerStore";
 import { generatePDFReport, imageUrlToBase64 } from "../utils/reportGenerator";
+import { buildAiImagePrompt } from "../utils/aiImagePrompt";
 
 /**
  * Quick heuristic check for a "blank" canvas capture: samples a grid of
@@ -63,9 +66,36 @@ export function Toolbar() {
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [promptCopied, setPromptCopied] = useState(false);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
+
+  // Builds the AI-image command auto-filled with the real container +
+  // product data (see utils/aiImagePrompt.ts) and copies it to the
+  // clipboard so it's ready to paste straight into an external AI
+  // image generator — no manual editing needed.
+  const handleCopyAiImagePrompt = async () => {
+    if (!projectConfig) return;
+    if (products.length === 0) {
+      alert("Tambahkan product terlebih dahulu!");
+      return;
+    }
+
+    const prompt = buildAiImagePrompt(projectConfig.containerType, products);
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2000);
+    } catch (error) {
+      console.error("Clipboard error:", error);
+      alert(
+        "Gagal menyalin otomatis ke clipboard (izin browser). Command sudah dicetak ke console — silakan copy manual dari sana.",
+      );
+      console.log(prompt);
+    }
+  };
 
   const handleExportPNG = async () => {
     const canvas = document.querySelector("canvas");
@@ -283,6 +313,26 @@ export function Toolbar() {
           >
             <Bot className="w-3.5 h-3.5" />
             AI Pack
+          </button>
+
+          {/* Copy AI Image Prompt Button */}
+          <button
+            onClick={handleCopyAiImagePrompt}
+            disabled={!projectConfig || products.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-sky-600/20"
+            title="Salin command siap-paste untuk AI image generator (tampak kanan/kiri, 4 varian)"
+          >
+            {promptCopied ? (
+              <>
+                <Check className="w-3.5 h-3.5" />
+                Tersalin!
+              </>
+            ) : (
+              <>
+                <ImagePlus className="w-3.5 h-3.5" />
+                Copy AI Image Prompt
+              </>
+            )}
           </button>
 
           <div className="w-px h-5 bg-gray-700 mx-1.5" />
