@@ -47,10 +47,23 @@ export const layoutService = {
   removeItem: (itemId: number) => api.delete(`/layouts/items/${itemId}`),
 };
 
+
 // Auth
 export const authService = {
-  login: (email: string, password: string) => api.post('/auth/login', { email, password }),
+  login: (email: string, password: string) =>
+    api.post('/auth/login', { email, password }),
+  me: () => api.get('/auth/me'),
 };
+
+// Tambahkan interceptor ini SETELAH `const api = axios.create({...})`
+// supaya token otomatis terkirim di setiap request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // Projects (Save / Auto-save / Load)
 export const projectService = {
@@ -61,4 +74,6 @@ export const projectService = {
 };
 
 export default api;
+
+// Tambahkan blok ini ke frontend/src/services/api.ts
 
