@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import * as THREE from 'three';
 import { aiPackContainer } from '../utils/aiPackService';
+import { projectService } from '../services/api';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -701,6 +702,10 @@ export interface PlannerState {
   viewRotateLocked: boolean;
   debugOverlayVisible: boolean;
   lastSavedAt: number | null;
+  // Project save/load state
+  currentProjectId: number | null;
+  isSaving: boolean;
+  autoSaveEnabled: boolean;
 
   setProjectPhase: (phase: 'setup' | 'working') => void;
   setProjectConfig: (config: ProjectConfig) => void;
@@ -741,6 +746,10 @@ export interface PlannerState {
   autoPackAll: () => void;
   aiAutoPack: (customPrompt?: string) => Promise<void>;
   getLayoutStats: () => LayoutStats;
+  // Project save/load actions
+  saveProject: () => Promise<void>;
+  loadProject: (id: number) => Promise<void>;
+  setCurrentProjectId: (id: number | null) => void;
 }
 
 export const usePlannerStore = create<PlannerState>()(
@@ -768,6 +777,9 @@ export const usePlannerStore = create<PlannerState>()(
   // code needs to change.
   debugOverlayVisible: true,
   lastSavedAt: null,
+  currentProjectId: null,
+  isSaving: false,
+  autoSaveEnabled: true,
 
   setProjectPhase: (phase) => set({ projectPhase: phase }),
 
@@ -787,6 +799,7 @@ export const usePlannerStore = create<PlannerState>()(
       selectedItemId: null,
       selectedGroupIds: [],
       contextMenu: null,
+      currentProjectId: null,
     }),
 
   addProduct: (productInfo) =>
@@ -1307,6 +1320,74 @@ export const usePlannerStore = create<PlannerState>()(
   setViewRotateLocked: (val) => set({ viewRotateLocked: val }),
   setDebugOverlayVisible: (val) => set({ debugOverlayVisible: val }),
   markSaved: () => set({ lastSavedAt: Date.now() }),
+  setCurrentProjectId: (id) => set({ currentProjectId: id }),
+
+  saveProject: async () => {
+    const state = get();
+    if (!state.projectConfig || state.isSaving) return;
+
+    set({ isSaving: true });
+    try {
+      const stats = state.getLayoutStats();
+      const response = await projectService.save({
+        id: state.currentProjectId,
+        name: state.projectConfig.name,
+        containerType: state.projectConfig.containerType,
+        products: state.products,
+        layoutItems: state.layoutItems,
+        itemCount: stats.itemCount,
+        totalWeightKg: stats.totalWeight,
+        volumePercent: stats.volumePercent,
+      });
+
+      if (response.data.success) {
+        set({
+          currentProjectId: response.data.data.id,
+          lastSavedAt: Date.now(),
+          isSaving: false,
+        });
+      } else {
+        console.error('Save failed:', response.data.error);
+        set({ isSaving: false });
+      }
+    } catch (error) {
+      console.error('Save project error:', error);
+      set({ isSaving: false });
+    }
+  },
+
+  loadProject: async (id: number) => {
+    try {
+      const response = await projectService.getById(id);
+      if (!response.data.success) {
+        alert('Gagal memuat project: ' + response.data.error);
+        return;
+      }
+
+      const project = response.data.data;
+      const containerType: ContainerType = project.containerType;
+
+      set({
+        projectPhase: 'working',
+        projectConfig: {
+          name: project.name,
+          containerType,
+        },
+        products: project.products || [],
+        layoutItems: project.layoutItems || [],
+        currentProjectId: project.id,
+        lastSavedAt: Date.now(),
+        selectedItemId: null,
+        selectedGroupIds: [],
+        contextMenu: null,
+        history: [JSON.parse(JSON.stringify(project.layoutItems || []))],
+        historyIndex: 0,
+      });
+    } catch (error) {
+      console.error('Load project error:', error);
+      alert('Gagal memuat project dari database.');
+    }
+  },
 
   autoPackAll: () => {
     const state = get();
@@ -1593,6 +1674,7 @@ export const usePlannerStore = create<PlannerState>()(
         viewRotateLocked: state.viewRotateLocked,
         debugOverlayVisible: state.debugOverlayVisible,
         lastSavedAt: state.lastSavedAt,
+        currentProjectId: state.currentProjectId,
       }),
     }
   )

@@ -5,6 +5,7 @@ const ProductGroup = require('./ProductGroup');
 const Product = require('./Product');
 const Layout = require('./Layout');
 const LayoutItem = require('./LayoutItem');
+const Project = require('./Project');
 
 // Define associations
 User.hasMany(ContainerType, { as: 'containerTypes', foreignKey: 'created_by' });
@@ -28,4 +29,5 @@ module.exports = {
   Product,
   Layout,
   LayoutItem,
+  Project,
 };

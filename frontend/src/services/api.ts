@@ -47,4 +47,13 @@ export const layoutService = {
   removeItem: (itemId: number) => api.delete(`/layouts/items/${itemId}`),
 };
 
+// Projects (Save / Auto-save / Load)
+export const projectService = {
+  save: (data: any) => api.post('/projects/save', data),
+  getAll: () => api.get('/projects'),
+  getById: (id: number) => api.get(`/projects/${id}`),
+  delete: (id: number) => api.delete(`/projects/${id}`),
+};
+
 export default api;
+

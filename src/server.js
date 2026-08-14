@@ -13,6 +13,7 @@ const { seed } = require('./utils/seed');
 const productsRoutes = require('./routes/products');
 const containersRoutes = require('./routes/containers');
 const layoutsRoutes = require('./routes/layouts');
+const projectsRoutes = require('./routes/projects');
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.get('/health', (req, res) => {
 app.use('/api/products', productsRoutes);
 app.use('/api/containers', containersRoutes);
 app.use('/api/layouts', layoutsRoutes);
+app.use('/api/projects', projectsRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -55,20 +57,22 @@ const PORT = process.env.PORT || 5000;
 async function startServer() {
   try {
     // Test database connection
-    // await sequelize.authenticate();
-    // console.log('✓ Database connected');
+    await sequelize.authenticate();
+    console.log('✓ Database connected');
 
-    // Run seeder (creates tables and sample data)
-    // await seed();
+    // Sync models (creates tables if they don't exist)
+    await sequelize.sync({ alter: false });
+    console.log('✓ Database synced');
 
     // Start server
     app.listen(PORT, () => {
       console.log(`\n✅ Container Loading Planner API running on http://localhost:${PORT}`);
       console.log(`📖 API Docs:\n`);
-      console.log(`  Products: GET/POST http://localhost:${PORT}/api/products`);
+      console.log(`  Products:   GET/POST http://localhost:${PORT}/api/products`);
       console.log(`  Containers: GET/POST http://localhost:${PORT}/api/containers`);
-      console.log(`  Layouts: GET/POST http://localhost:${PORT}/api/layouts`);
-      console.log(`  Health: GET http://localhost:${PORT}/health`);
+      console.log(`  Layouts:    GET/POST http://localhost:${PORT}/api/layouts`);
+      console.log(`  Projects:   GET/POST http://localhost:${PORT}/api/projects`);
+      console.log(`  Health:     GET      http://localhost:${PORT}/health`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
