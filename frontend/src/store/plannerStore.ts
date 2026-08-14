@@ -683,6 +683,7 @@ function findNearestValidPlacement(
 // ── Store ────────────────────────────────────────────────────────────
 
 export interface PlannerState {
+  user: { id: number; name: string; email: string; role: string } | null;
   projectPhase: 'setup' | 'working';
   projectConfig: ProjectConfig | null;
   products: Product[];
@@ -750,6 +751,10 @@ export interface PlannerState {
   saveProject: () => Promise<void>;
   loadProject: (id: number) => Promise<void>;
   setCurrentProjectId: (id: number | null) => void;
+  updateProjectName: (name: string) => void;
+  duplicateProject: () => Promise<void>;
+  setUser: (user: any) => void;
+  logout: () => void;
 }
 
 export const usePlannerStore = create<PlannerState>()(
@@ -780,6 +785,10 @@ export const usePlannerStore = create<PlannerState>()(
   currentProjectId: null,
   isSaving: false,
   autoSaveEnabled: true,
+  user: null,
+
+  setUser: (user) => set({ user }),
+  logout: () => set({ user: null, projectPhase: 'setup', projectConfig: null }),
 
   setProjectPhase: (phase) => set({ projectPhase: phase }),
 
@@ -1001,11 +1010,11 @@ export const usePlannerStore = create<PlannerState>()(
 
             if (checkCollision(testItem, state.layoutItems, container)) continue;
 
-            // Exact priority:
-            // 1. lowest layer
-            // 2. closest to front (X)
-            // 3. closest to left (Z)
-            const score: [number, number, number] = [dropY, x, z];
+            // Priority:
+            // 1. closest to front/deepest (X)
+            // 2. closest to left (Z)
+            // 3. lowest layer (Y)
+            const score: [number, number, number] = [x, z, dropY];
 
             if (
               !bestResult ||
@@ -1387,6 +1396,22 @@ export const usePlannerStore = create<PlannerState>()(
       console.error('Load project error:', error);
       alert('Gagal memuat project dari database.');
     }
+  },
+
+  updateProjectName: (name) =>
+    set((state) => ({
+      projectConfig: state.projectConfig ? { ...state.projectConfig, name } : null,
+    })),
+
+  duplicateProject: async () => {
+    const state = get();
+    if (!state.projectConfig) return;
+    set({
+      currentProjectId: null,
+      projectConfig: { ...state.projectConfig, name: state.projectConfig.name + " (Copy)" },
+    });
+    await get().saveProject();
+    alert("Project berhasil diduplikasi!");
   },
 
   autoPackAll: () => {

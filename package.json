@@ -22,7 +22,7 @@
     "morgan": "^1.10.0",
     "mysql": "^2.18.1",
     "mysql2": "^3.23.3",
-    "sequelize": "^6.37.3",
+    "sequelize": "^3.30.0",
     "uuid": "^14.0.1"
   },
   "devDependencies": {

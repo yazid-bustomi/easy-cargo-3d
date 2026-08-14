@@ -13,6 +13,7 @@ import {
   Unlock,
   ImagePlus,
   Check,
+  Copy,
 } from "lucide-react";
 import { usePlannerStore } from "../store/plannerStore";
 import { generatePDFReport, imageUrlToBase64 } from "../utils/reportGenerator";
@@ -61,12 +62,17 @@ export function Toolbar() {
     viewRotateLocked,
     setViewRotateLocked,
     lastSavedAt,
-    markSaved,
+    saveProject,
+    isSaving,
+    updateProjectName,
+    duplicateProject,
   } = usePlannerStore();
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [promptCopied, setPromptCopied] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState("");
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -218,9 +224,38 @@ export function Toolbar() {
           </button>
           {projectConfig && (
             <div className="text-sm">
-              <span className="text-white font-medium">
-                {projectConfig.name}
-              </span>
+              {isEditingName ? (
+                <input
+                  type="text"
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  onBlur={() => {
+                    setIsEditingName(false);
+                    if (editedName.trim()) updateProjectName(editedName.trim());
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setIsEditingName(false);
+                      if (editedName.trim()) updateProjectName(editedName.trim());
+                    } else if (e.key === "Escape") {
+                      setIsEditingName(false);
+                    }
+                  }}
+                  autoFocus
+                  className="bg-gray-800 text-white font-medium border border-gray-600 rounded px-1.5 py-0.5 outline-none focus:border-blue-500"
+                />
+              ) : (
+                <span 
+                  className="text-white font-medium cursor-text" 
+                  onDoubleClick={() => {
+                    setEditedName(projectConfig.name);
+                    setIsEditingName(true);
+                  }}
+                  title="Double click to rename"
+                >
+                  {projectConfig.name}
+                </span>
+              )}
               <span className="text-gray-500 ml-2 text-xs">
                 {projectConfig.containerType.name}
               </span>
@@ -273,11 +308,20 @@ export function Toolbar() {
           <div className="w-px h-5 bg-gray-700 mx-1.5" />
 
           <button
-            onClick={() => markSaved()}
-            className="px-2.5 py-1.5 rounded-lg text-xs text-emerald-400 hover:text-emerald-300 hover:bg-gray-800 transition-colors"
-            title="Simpan project ke penyimpanan browser"
+            onClick={() => duplicateProject()}
+            className="p-2 rounded-lg transition-colors text-purple-400 hover:text-purple-300 hover:bg-gray-800"
+            title="Duplicate Project"
           >
-            Save
+            <Copy className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => saveProject()}
+            disabled={isSaving}
+            className="px-2.5 py-1.5 rounded-lg text-xs text-emerald-400 hover:text-emerald-300 hover:bg-gray-800 transition-colors disabled:opacity-50"
+            title="Simpan project"
+          >
+            {isSaving ? "Saving..." : "Save"}
           </button>
 
           <div className="w-px h-5 bg-gray-700 mx-1.5" />

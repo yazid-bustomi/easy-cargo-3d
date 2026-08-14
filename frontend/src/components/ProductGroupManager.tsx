@@ -211,7 +211,7 @@ export function ProductGroupManager() {
         return (
           <div
             key={product.id}
-            className="bg-gray-800/60 backdrop-blur rounded-xl border border-gray-700/50 overflow-hidden"
+            className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm"
           >
             {/* Product Summary / Header */}
             <div className="p-3 flex items-center gap-2">
@@ -230,14 +230,14 @@ export function ProductGroupManager() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex justify-between items-center">
-                    <h3 className="font-semibold text-white text-sm truncate">
+                    <h3 className="font-semibold text-gray-800 text-sm truncate">
                       {product.name}
                     </h3>
-                    <span className="text-xs text-yellow-400 font-bold flex-shrink-0 ml-2">
+                    <span className="text-xs text-amber-600 font-bold flex-shrink-0 ml-2">
                       {insertedCount} / {product.qty} pcs
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-500 mt-0.5">
                     {product.length_cm}×{product.width_cm}×{product.height_cm}{" "}
                     cm · {product.weight_kg} kg
                   </p>
@@ -258,7 +258,7 @@ export function ProductGroupManager() {
 
             {/* Edit form */}
             {isEditing && (
-              <div className="px-3 pb-3 border-t border-gray-700/50 pt-3 space-y-2 bg-gray-900/40">
+              <div className="px-3 pb-3 border-t border-gray-200 pt-3 space-y-2 bg-gray-50">
                 {/* Name + Group */}
                 <div className="grid grid-cols-4 gap-1.5">
                   <div className="col-span-3">
@@ -271,7 +271,7 @@ export function ProductGroupManager() {
                       onChange={(e) =>
                         updateProduct(product.id, { name: e.target.value })
                       }
-                      className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       placeholder="Product name"
                     />
                   </div>
@@ -287,7 +287,7 @@ export function ProductGroupManager() {
                           group: e.target.value.toUpperCase(),
                         })
                       }
-                      className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm text-center font-bold focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm text-center font-bold focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       placeholder="A"
                       maxLength={4}
                     />
@@ -308,7 +308,7 @@ export function ProductGroupManager() {
                           length_cm: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       min={1}
                     />
                   </div>
@@ -324,7 +324,7 @@ export function ProductGroupManager() {
                           width_cm: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       min={1}
                     />
                   </div>
@@ -340,14 +340,14 @@ export function ProductGroupManager() {
                           height_cm: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       min={1}
                     />
                   </div>
                 </div>
 
                 {/* 3D Preview */}
-                <div className="h-32 bg-gray-950/50 rounded-lg overflow-hidden border border-gray-700/50 relative">
+                <div className="h-32 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 relative">
                   <div className="absolute top-1 left-2 text-[10px] text-gray-500 font-medium z-10">
                     3D Preview
                   </div>
@@ -372,7 +372,7 @@ export function ProductGroupManager() {
                           weight_kg: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       min={0}
                       step={0.1}
                     />
@@ -389,7 +389,7 @@ export function ProductGroupManager() {
                           qty: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                       min={1}
                     />
                   </div>
@@ -438,8 +438,8 @@ export function ProductGroupManager() {
                         }
                         className="w-3.5 h-3.5 mt-0.5 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 disabled:opacity-50"
                       />
-                      <span className="text-xs text-gray-300">
-                        ↔ Boleh Ditidurkan
+                      <span className="text-xs text-gray-500">
+                        ↑↑ Boleh Ditidurkan
                         <span className="block text-[10px] text-gray-500">
                           {product.this_side_up
                             ? "Boleh rebah miring, tapi sisi atas asli tetap tidak boleh menghadap bawah"

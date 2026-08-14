@@ -66,7 +66,7 @@ function buildProductTableHtml(productSummary: ReturnType<typeof getProductSumma
       if (p.group === 'D') badgeStyle = 'background: #4f6fd9; color: #fff;';
       if (p.group === 'G') badgeStyle = 'background: #d9b21a; color: #fff;';
 
-      const restr = p.thisSideUp ? '&#8645; &#9632; &#9650;' : '&#8645;'; // simple representation of restrictions
+      const restr = p.thisSideUp ? '&#8593;&#8593;' : ''; // simple representation of restrictions
 
       rowsHtml += `
         <tr>

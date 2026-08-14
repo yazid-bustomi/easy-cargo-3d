@@ -23,9 +23,9 @@ export function PlannerPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Panel - Product Groups */}
-        <div className="w-80 bg-gray-900/80 backdrop-blur border-r border-gray-700/50 flex flex-col flex-shrink-0">
-          <div className="px-4 py-3 border-b border-gray-700/50">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
+        <div className="w-80 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 shadow-sm z-10 relative">
+          <div className="px-4 py-3 border-b border-gray-200">
+            <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
               📦 Products
             </h2>
           </div>

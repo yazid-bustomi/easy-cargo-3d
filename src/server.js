@@ -10,6 +10,7 @@ const { sequelize } = require('./models');
 const { seed } = require('./utils/seed');
 
 // Import routes
+const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
 const containersRoutes = require('./routes/containers');
 const layoutsRoutes = require('./routes/layouts');
@@ -33,6 +34,7 @@ app.get('/health', (req, res) => {
 });
 
 // API Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/containers', containersRoutes);
 app.use('/api/layouts', layoutsRoutes);

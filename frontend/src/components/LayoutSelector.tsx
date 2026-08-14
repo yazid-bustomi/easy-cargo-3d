@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePlannerStore, PRESET_CONTAINERS, ContainerType } from '../store/plannerStore';
+import { projectService } from '../services/api';
 
 export function LayoutSelector() {
-  const { setProjectConfig, aiApiKey, setAiApiKey, aiProvider, setAiProvider } = usePlannerStore();
+  const { setProjectConfig, aiApiKey, setAiApiKey, aiProvider, setAiProvider, loadProject, logout } = usePlannerStore();
+  const [savedProjects, setSavedProjects] = useState<any[]>([]);
 
   const [projectName, setProjectName] = useState('');
   const [selectedPreset, setSelectedPreset] = useState<number>(PRESET_CONTAINERS[0].id);
@@ -14,6 +16,21 @@ export function LayoutSelector() {
     height_cm: 260,
     max_payload_kg: 26000,
   });
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  const fetchProjects = async () => {
+    try {
+      const res = await projectService.getAll();
+      if (res.data.success) {
+        setSavedProjects(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch projects', err);
+    }
+  };
 
   const handleSave = () => {
     if (!projectName.trim()) return;
@@ -51,15 +68,29 @@ export function LayoutSelector() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-600/5 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative bg-gray-900/80 backdrop-blur-xl rounded-2xl p-8 max-w-lg w-full mx-4 border border-gray-700/50 shadow-2xl shadow-black/50">
+      <div className="relative bg-gray-900/80 backdrop-blur-xl rounded-2xl p-8 max-w-4xl w-full mx-4 border border-gray-700/50 shadow-2xl shadow-black/50">
+        <div className="absolute top-4 right-4">
+          <button onClick={logout} className="px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg text-xs transition-colors">
+            Logout
+          </button>
+        </div>
+
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl mb-4 shadow-lg shadow-blue-500/20">
             <span className="text-3xl">📦</span>
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Easy Cargo 3D</h1>
-          <p className="text-gray-400 text-sm">Setup your project to begin loading</p>
+          <p className="text-gray-400 text-sm">Setup new project or open existing one</p>
         </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* LEFT: New Project */}
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <span className="text-blue-400">⊕</span> Create New Project
+            </h2>
+
 
         {/* Project Name */}
         <div className="mb-6">
@@ -220,14 +251,51 @@ export function LayoutSelector() {
           </div>
         </div>
 
-        {/* Save Button */}
-        <button
-          onClick={handleSave}
-          disabled={!projectName.trim()}
-          className="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
-        >
-          Save & Start Loading →
-        </button>
+          {/* Save Button */}
+          <button
+            onClick={handleSave}
+            disabled={!projectName.trim()}
+            className="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+          >
+            Start Loading →
+          </button>
+        </div>
+
+        {/* RIGHT: Saved Projects */}
+        <div className="flex flex-col h-[500px]">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <span className="text-emerald-400">📂</span> Open Project
+          </h2>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+            {savedProjects.length === 0 ? (
+              <div className="text-center text-gray-500 text-sm mt-10">
+                Belum ada project yang tersimpan
+              </div>
+            ) : (
+              savedProjects.map((p) => (
+                <div key={p.id} className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 hover:border-blue-500/50 transition-colors group">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-semibold text-white truncate pr-2">{p.name}</h3>
+                    <button
+                      onClick={() => loadProject(p.id)}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      Open
+                    </button>
+                  </div>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <p>Container: {p.containerName} ({p.containerSize})</p>
+                    <p>Items: {p.itemCount} pcs | Weight: {p.totalWeightKg.toLocaleString()} kg</p>
+                    <p className="text-[10px] text-gray-500 mt-2">
+                      Updated: {new Date(p.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
       </div>
     </div>
   );

@@ -47,6 +47,11 @@ export const layoutService = {
   removeItem: (itemId: number) => api.delete(`/layouts/items/${itemId}`),
 };
 
+// Auth
+export const authService = {
+  login: (email: string, password: string) => api.post('/auth/login', { email, password }),
+};
+
 // Projects (Save / Auto-save / Load)
 export const projectService = {
   save: (data: any) => api.post('/projects/save', data),
