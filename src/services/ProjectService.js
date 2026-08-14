@@ -2,6 +2,38 @@ const Project = require('../models/Project');
 
 class ProjectService {
   /**
+   * Safely parse a value that is expected to be a JSON array/object.
+   *
+   * The `products_json` / `layout_items_json` columns are stored as
+   * `LONGTEXT` (with a `CHECK (json_valid(...))` constraint) rather than
+   * a native MySQL JSON column. Because of that, the mysql2 driver
+   * returns the raw text as a plain JS string instead of an
+   * already-parsed object/array — Sequelize's `DataTypes.JSON` does not
+   * auto-deserialize on read for this column type/dialect combination.
+   * Without this parsing step, the API would hand the frontend a JSON
+   * *string* where it expects a real array, breaking every `.map()` /
+   * `.reduce()` call on `products` and `layoutItems` after loading a
+   * saved project.
+   *
+   * This helper is defensive: if the value already comes back as a
+   * proper array/object (e.g. a future Sequelize/driver upgrade that
+   * does auto-parse), it's returned as-is instead of being parsed
+   * again (which would throw, since `JSON.parse` on a non-string
+   * throws or behaves unexpectedly).
+   */
+  static _parseJsonField(value, fallback = []) {
+    if (value == null) return fallback;
+    if (typeof value !== 'string') return value; // already parsed
+    try {
+      const parsed = JSON.parse(value);
+      return parsed == null ? fallback : parsed;
+    } catch (err) {
+      console.error('ProjectService: failed to parse stored JSON field:', err.message);
+      return fallback;
+    }
+  }
+
+  /**
    * Save or update a project.
    * If `id` is provided and exists, update it (auto-save / manual re-save).
    * Otherwise create a new project.
@@ -28,8 +60,12 @@ class ProjectService {
       container_max_payload_kg: containerType.max_payload_kg || 0,
       container_tare_weight_kg: containerType.tare_weight_kg || 0,
       container_is_system: containerType.is_system || false,
-      products_json: products || [],
-      layout_items_json: layoutItems || [],
+      // Guard against double-encoding: if a caller ever passes an
+      // already-stringified JSON blob instead of a real array, parse it
+      // back to a native array/object first so we never store a
+      // double-encoded string in the LONGTEXT column.
+      products_json: this._parseJsonField(products, []),
+      layout_items_json: this._parseJsonField(layoutItems, []),
       item_count: itemCount || 0,
       total_weight_kg: totalWeightKg || 0,
       volume_percent: volumePercent || 0,
@@ -70,8 +106,8 @@ class ProjectService {
         tare_weight_kg: Number(project.container_tare_weight_kg),
         is_system: project.container_is_system,
       },
-      products: project.products_json,
-      layoutItems: project.layout_items_json,
+      products: this._parseJsonField(project.products_json, []),
+      layoutItems: this._parseJsonField(project.layout_items_json, []),
       itemCount: project.item_count,
       totalWeightKg: Number(project.total_weight_kg),
       volumePercent: Number(project.volume_percent),

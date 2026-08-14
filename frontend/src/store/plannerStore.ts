@@ -4,6 +4,35 @@ import * as THREE from 'three';
 import { aiPackContainer } from '../utils/aiPackService';
 import { projectService } from '../services/api';
 
+/**
+ * Defensively coerce a value that is expected to be an array into an
+ * actual array.
+ *
+ * This guards against two real-world failure modes seen in production:
+ *  1. The backend API returning a JSON-encoded *string* instead of a
+ *     real array (a MariaDB/Sequelize JSON-column quirk that has since
+ *     been fixed server-side, but old responses could still be cached).
+ *  2. That bad string value having already been written into
+ *     localStorage by zustand's `persist` middleware *before* the
+ *     server-side fix — in which case every future page load restores
+ *     the corrupted string from localStorage and the app crashes with
+ *     "products.map is not a function" even though the API itself now
+ *     returns correct data, because the store never calls the API
+ *     again until the corrupted cache is cleared.
+ */
+function ensureArray<T = any>(value: unknown, fallback: T[] = []): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value === 'string' && value.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed as T[];
+    } catch {
+      // fall through to fallback
+    }
+  }
+  return fallback;
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface Position {
@@ -1382,14 +1411,14 @@ export const usePlannerStore = create<PlannerState>()(
           name: project.name,
           containerType,
         },
-        products: project.products || [],
-        layoutItems: project.layoutItems || [],
+        products: ensureArray(project.products),
+        layoutItems: ensureArray(project.layoutItems),
         currentProjectId: project.id,
         lastSavedAt: Date.now(),
         selectedItemId: null,
         selectedGroupIds: [],
         contextMenu: null,
-        history: [JSON.parse(JSON.stringify(project.layoutItems || []))],
+        history: [JSON.parse(JSON.stringify(ensureArray(project.layoutItems)))],
         historyIndex: 0,
       });
     } catch (error) {
@@ -1685,7 +1714,26 @@ export const usePlannerStore = create<PlannerState>()(
   }),
     {
       name: 'easycargo3d-planner-v2',
-      version: 2,
+      version: 3,
+      // Bumping the version to 3 forces `migrate` to run once for every
+      // browser that already has a persisted store from before the
+      // "products.map is not a function" bug was fixed. Without this,
+      // a corrupted `products`/`layoutItems` string that got saved to
+      // localStorage by an older build would keep being restored on
+      // every page load forever, even after the app code (and the
+      // backend API) were both fixed — because the store would never
+      // call loadProject()/the API again once localStorage already had
+      // "data" in it.
+      migrate: (persistedState: any) => {
+        if (!persistedState || typeof persistedState !== 'object') {
+          return persistedState;
+        }
+        return {
+          ...persistedState,
+          products: ensureArray(persistedState.products),
+          layoutItems: ensureArray(persistedState.layoutItems),
+        };
+      },
       partialize: (state) => ({
         projectPhase: state.projectPhase,
         projectConfig: state.projectConfig,
