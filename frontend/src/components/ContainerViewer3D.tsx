@@ -85,20 +85,25 @@ function mirrorAcrossWidth(view: CaptureView): CaptureView {
 //  Target/0 - X: 881.0 | Y: 134.5 | Z: 206.8). "right" is derived by
 // mirroring it across the container width rather than tuned again from
 // scratch.
-const HC40_LEFT: CaptureView = {
+const HC40HC_LEFT: CaptureView = {
   pos: new THREE.Vector3(1152.2 * S, 460.1 * S, 602.7 * S),
   target: new THREE.Vector3(881.0 * S, 134.5 * S, 206.8 * S),
 };
 
+const HC20_LEFT: CaptureView = {
+  pos: new THREE.Vector3(464.8 * S, 381.0 * S, 502.6 * S),
+  target: new THREE.Vector3(290.6 * S, 0.0 * S, 27.8 * S),
+};
+
 const CAPTURE_CAM_POS: Record<string, CaptureConfig> = {
   "40HC": {
-    left: HC40_LEFT,
-    right: mirrorAcrossWidth(HC40_LEFT),
+    left: HC40HC_LEFT,
+    right: mirrorAcrossWidth(HC40HC_LEFT),
     top: { pos: new THREE.Vector3(1546.9 * S, 603.4 * S, 87.6 * S) },
   },
   "20FT": {
-    left: { pos: new THREE.Vector3(600 * S, 400 * S, 500 * S) },
-    right: { pos: new THREE.Vector3(600 * S, 400 * S, -500 * S) },
+    left: HC20_LEFT,
+    right: mirrorAcrossWidth(HC20_LEFT),
     top: { pos: new THREE.Vector3(600 * S, 800 * S, 0 * S) },
   },
   "40FT": {
