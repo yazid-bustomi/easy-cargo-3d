@@ -2,6 +2,7 @@
   "name": "container-planner-3d-frontend",
   "version": "1.0.0",
   "private": true,
+  "proxy": "http://localhost:5000",
   "dependencies": {
     "@react-three/drei": "^9.88.0",
     "@react-three/fiber": "^8.14.0",

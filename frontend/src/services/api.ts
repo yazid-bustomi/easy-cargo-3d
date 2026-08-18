@@ -1,12 +1,24 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Saat production build, frontend & backend di-serve dari server yang SAMA,
+// jadi cukup gunakan path relatif '/api'.
+// Saat development, React dev server (port 3000) proxy ke backend (port 5000).
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Interceptor: kirim token di setiap request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 // Products
@@ -47,23 +59,12 @@ export const layoutService = {
   removeItem: (itemId: number) => api.delete(`/layouts/items/${itemId}`),
 };
 
-
 // Auth
 export const authService = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
   me: () => api.get('/auth/me'),
 };
-
-// Tambahkan interceptor ini SETELAH `const api = axios.create({...})`
-// supaya token otomatis terkirim di setiap request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 // Projects (Save / Auto-save / Load)
 export const projectService = {
@@ -74,6 +75,3 @@ export const projectService = {
 };
 
 export default api;
-
-// Tambahkan blok ini ke frontend/src/services/api.ts
-

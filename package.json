@@ -7,7 +7,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/utils/seed.js"
+    "seed": "node src/utils/seed.js",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "deploy": "npm run build:frontend && npm start",
+    "postinstall": "cd frontend && npm install"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -20,7 +23,6 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "mysql": "^2.18.1",
     "mysql2": "^3.23.3",
     "sequelize": "^6.37.8",
     "uuid": "^14.0.1"

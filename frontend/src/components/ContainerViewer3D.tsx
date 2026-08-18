@@ -1056,7 +1056,7 @@ export function ContainerViewer3D() {
   const W = container?.width_cm || 0;
   const H = container?.height_cm || 0;
 
-  const handleSelect = (item: LayoutItem) => {
+  const handleSelect = useCallback((item: LayoutItem) => {
     const state = usePlannerStore.getState();
     if (state.isPlacing && state.selectedItemId === item.id) {
       state.setPlacing(false);
@@ -1065,19 +1065,28 @@ export function ContainerViewer3D() {
       state.selectItem(item.id);
       state.setPlacing(true);
     }
-  };
+  }, []);
+
+  const layoutItemsRef = useRef(layoutItems);
+  useEffect(() => {
+    if (!isPlacing) {
+      layoutItemsRef.current = layoutItems;
+    }
+  }, [layoutItems, isPlacing]);
 
   const placementZones = useMemo(() => {
     if (!selectedItemId || !isPlacing || !container) return [];
-    const item = layoutItems.find((i) => i.id === selectedItemId);
+    // Gunakan cached layoutItems agar kalkulasi rumit tidak jalan 60x per detik saat item digeser
+    const items = layoutItemsRef.current;
+    const item = items.find((i) => i.id === selectedItemId);
     if (!item) return [];
     return calculatePlacementZones(
       item,
-      layoutItems,
+      items,
       container,
       selectedGroupIds,
     );
-  }, [selectedItemId, isPlacing, layoutItems, container, selectedGroupIds]);
+  }, [selectedItemId, isPlacing, container, selectedGroupIds]);
 
   const handleContextMenu = useCallback(
     (e: ThreeEvent<MouseEvent>, item: LayoutItem) => {
@@ -1092,14 +1101,14 @@ export function ContainerViewer3D() {
 
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        showContextMenu(
+        usePlannerStore.getState().showContextMenu(
           e.nativeEvent.clientX - rect.left,
           e.nativeEvent.clientY - rect.top,
           item.id,
         );
       }
     },
-    [showContextMenu],
+    [],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
