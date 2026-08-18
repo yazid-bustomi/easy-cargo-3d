@@ -95,26 +95,48 @@ const HC20_LEFT: CaptureView = {
   target: new THREE.Vector3(290.6 * S, 0.0 * S, 27.8 * S),
 };
 
+const FT40_LEFT: CaptureView = {
+  pos: new THREE.Vector3(1125.1 * S, 447.9 * S, 593.0 * S),
+  target: new THREE.Vector3(860.6 * S, 119.5 * S, 205.2 * S),
+};
+
+const HC45_LEFT: CaptureView = {
+  pos: new THREE.Vector3(1256.8 * S, 483.6 * S, 660.9 * S),
+  target: new THREE.Vector3(977.4 * S, 134.5 * S, 232.1 * S),
+};
+
 const CAPTURE_CAM_POS: Record<string, CaptureConfig> = {
   "40HC": {
     left: HC40HC_LEFT,
     right: mirrorAcrossWidth(HC40HC_LEFT),
-    top: { pos: new THREE.Vector3(1546.9 * S, 603.4 * S, 87.6 * S) },
+    top: {
+      pos: new THREE.Vector3(1534.3 * S, 636.7 * S, 117.2 * S),
+      target: new THREE.Vector3(890.1 * S, 134.5 * S, 125.7 * S),
+    },
   },
   "20FT": {
     left: HC20_LEFT,
     right: mirrorAcrossWidth(HC20_LEFT),
-    top: { pos: new THREE.Vector3(600 * S, 800 * S, 0 * S) },
+    top: {
+      pos: new THREE.Vector3(774.1 * S, 576.2 * S, 115.2 * S),
+      target: new THREE.Vector3(362.4 * S, 119.5 * S, 114.3 * S),
+    },
   },
   "40FT": {
-    left: { pos: new THREE.Vector3(1080 * S, 520 * S, 650 * S) },
-    right: { pos: new THREE.Vector3(1080 * S, 520 * S, -650 * S) },
-    top: { pos: new THREE.Vector3(1560 * S, 850 * S, 80 * S) },
+    left: FT40_LEFT,
+    right: mirrorAcrossWidth(FT40_LEFT),
+    top: {
+      pos: new THREE.Vector3(1497.8 * S, 771.7 * S, 96.2 * S),
+      target: new THREE.Vector3(830.7 * S, 119.5 * S, 96.2 * S),
+    },
   },
   "45HC": {
-    left: { pos: new THREE.Vector3(1200 * S, 550 * S, 700 * S) },
-    right: { pos: new THREE.Vector3(1200 * S, 550 * S, -700 * S) },
-    top: { pos: new THREE.Vector3(1700 * S, 900 * S, 85 * S) },
+    left: HC45_LEFT,
+    right: mirrorAcrossWidth(HC45_LEFT),
+    top: {
+      pos: new THREE.Vector3(1717.9 * S, 722.0 * S, 116.4 * S),
+      target: new THREE.Vector3(983.6 * S, 134.5 * S, 119.3 * S),
+    },
   },
 };
 
@@ -366,7 +388,7 @@ interface ProductBoxProps {
   onContextMenu: (e: ThreeEvent<MouseEvent>, item: LayoutItem) => void;
 }
 
-function ProductBox({
+const ProductBox = React.memo(function ProductBox({
   item,
   isSelected,
   isInGroup,
@@ -644,7 +666,7 @@ function ProductBox({
       )}
     </group>
   );
-}
+});
 
 // ── Placement Controller (Pick and Place) ────────────────────────────
 function PlacementController({
@@ -1080,12 +1102,7 @@ export function ContainerViewer3D() {
     const items = layoutItemsRef.current;
     const item = items.find((i) => i.id === selectedItemId);
     if (!item) return [];
-    return calculatePlacementZones(
-      item,
-      items,
-      container,
-      selectedGroupIds,
-    );
+    return calculatePlacementZones(item, items, container, selectedGroupIds);
   }, [selectedItemId, isPlacing, container, selectedGroupIds]);
 
   const handleContextMenu = useCallback(
@@ -1101,11 +1118,13 @@ export function ContainerViewer3D() {
 
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        usePlannerStore.getState().showContextMenu(
-          e.nativeEvent.clientX - rect.left,
-          e.nativeEvent.clientY - rect.top,
-          item.id,
-        );
+        usePlannerStore
+          .getState()
+          .showContextMenu(
+            e.nativeEvent.clientX - rect.left,
+            e.nativeEvent.clientY - rect.top,
+            item.id,
+          );
       }
     },
     [],
@@ -1172,6 +1191,14 @@ export function ContainerViewer3D() {
       1.5;
     return new THREE.Vector3(camDist * 0.8, camDist * 0.6, camDist * 0.8);
   }, [container]);
+
+  const handlePointerOver = useCallback((item: LayoutItem) => {
+    setHoveredItem(item);
+  }, []);
+
+  const handlePointerOut = useCallback(() => {
+    setHoveredItem(null);
+  }, []);
 
   if (!container) {
     return (
@@ -1254,7 +1281,7 @@ export function ContainerViewer3D() {
             }
             isHovered={hoveredItem?.id === item.id}
             onSelect={handleSelect}
-            onHover={setHoveredItem}
+            onHover={handlePointerOver}
             onContextMenu={handleContextMenu}
           />
         ))}
