@@ -321,7 +321,7 @@ export function checkFullSupport(
     if (ignoreIds && ignoreIds.includes(other.id)) continue;
 
     const topY = other.pos_y + other.height_cm;
-    if (Math.abs(topY - y) <= TOLERANCE) {
+    if (Math.abs(topY - y) <= 0.5) {
       // An item marked non-stackable (e.g. a thin-legged table) can
       // never provide support for something resting on top of it.
       if (other.stackable === false) continue;
@@ -342,7 +342,7 @@ export function checkFullSupport(
     }
   }
 
-  return supportedArea >= totalArea * 0.99;
+  return supportedArea >= totalArea * 0.95;
 }
 
 /**
@@ -365,71 +365,80 @@ export function canRestOn(below: { stackable: boolean }): boolean {
 const NUDGE_STEP_CM = 5;
 
 /**
- * Maximum distance an item can slide along a single horizontal axis
- * ("x" = container length, "z" = container width) in the given
- * direction before it would overlap the container wall or another
- * item. Only the perpendicular footprint + the vertical (Y) band are
- * checked, since sliding only ever changes one horizontal coordinate
- * and never the item's height/position on the Y axis.
+ * Maximum distance a group of items can slide along a single horizontal
+ * axis ("x" = container length, "z" = container width) in the given
+ * direction before ANY member of the group would overlap the container
+ * wall or a non-group item.
+ *
+ * When moving a single item (groupItems has one entry), this behaves
+ * identically to the old single-item version.
  *
  * Used by nudgeItem so a keyboard slide always clamps to the nearest
- * obstacle instead of overshooting into it — the item lands flush
+ * obstacle instead of overshooting into it — the group lands flush
  * ("nempel") against the wall/neighbor exactly when it gets there.
  */
-function computeMaxSlideDistance(
-  item: LayoutItem,
+function computeGroupMaxSlideDistance(
+  groupItems: LayoutItem[],
   axis: 'x' | 'z',
   direction: 1 | -1,
   container: ContainerType,
   allItems: LayoutItem[],
   excludeIds: string[]
 ): number {
-  const yMin = item.pos_y;
-  const yMax = item.pos_y + item.height_cm;
+  // Start with the tightest wall limit across all group members
+  let limit = Infinity;
 
-  let limit: number;
-  if (axis === 'x') {
-    limit = direction > 0
-      ? container.length_cm - (item.pos_x + item.length_cm)
-      : item.pos_x;
-  } else {
-    limit = direction > 0
-      ? container.width_cm - (item.pos_z + item.width_cm)
-      : item.pos_z;
+  for (const gi of groupItems) {
+    let wallDist: number;
+    if (axis === 'x') {
+      wallDist = direction > 0
+        ? container.length_cm - (gi.pos_x + gi.length_cm)
+        : gi.pos_x;
+    } else {
+      wallDist = direction > 0
+        ? container.width_cm - (gi.pos_z + gi.width_cm)
+        : gi.pos_z;
+    }
+    if (wallDist < 0) wallDist = 0;
+    limit = Math.min(limit, wallDist);
   }
-  if (limit < 0) limit = 0;
 
+  // Now check distance to every non-group obstacle
   for (const other of allItems) {
     if (excludeIds.includes(other.id)) continue;
 
-    const oyMin = other.pos_y;
-    const oyMax = other.pos_y + other.height_cm;
-    const yOverlap = yMin + TOLERANCE < oyMax && yMax - TOLERANCE > oyMin;
-    if (!yOverlap) continue;
+    for (const gi of groupItems) {
+      const yMin = gi.pos_y;
+      const yMax = gi.pos_y + gi.height_cm;
+      const oyMin = other.pos_y;
+      const oyMax = other.pos_y + other.height_cm;
+      const yOverlap = yMin + TOLERANCE < oyMax && yMax - TOLERANCE > oyMin;
+      if (!yOverlap) continue;
 
-    if (axis === 'x') {
-      const zMin = item.pos_z, zMax = item.pos_z + item.width_cm;
-      const ozMin = other.pos_z, ozMax = other.pos_z + other.width_cm;
-      const zOverlap = zMin + TOLERANCE < ozMax && zMax - TOLERANCE > ozMin;
-      if (!zOverlap) continue;
+      if (axis === 'x') {
+        const zMin = gi.pos_z, zMax = gi.pos_z + gi.width_cm;
+        const ozMin = other.pos_z, ozMax = other.pos_z + other.width_cm;
+        const zOverlap = zMin + TOLERANCE < ozMax && zMax - TOLERANCE > ozMin;
+        if (!zOverlap) continue;
 
-      const gap = direction > 0
-        ? other.pos_x - (item.pos_x + item.length_cm)
-        : item.pos_x - (other.pos_x + other.length_cm);
-      if (gap >= -TOLERANCE) {
-        limit = Math.min(limit, Math.max(0, gap));
-      }
-    } else {
-      const xMin = item.pos_x, xMax = item.pos_x + item.length_cm;
-      const oxMin = other.pos_x, oxMax = other.pos_x + other.length_cm;
-      const xOverlap = xMin + TOLERANCE < oxMax && xMax - TOLERANCE > oxMin;
-      if (!xOverlap) continue;
+        const gap = direction > 0
+          ? other.pos_x - (gi.pos_x + gi.length_cm)
+          : gi.pos_x - (other.pos_x + other.length_cm);
+        if (gap >= -TOLERANCE) {
+          limit = Math.min(limit, Math.max(0, gap));
+        }
+      } else {
+        const xMin = gi.pos_x, xMax = gi.pos_x + gi.length_cm;
+        const oxMin = other.pos_x, oxMax = other.pos_x + other.length_cm;
+        const xOverlap = xMin + TOLERANCE < oxMax && xMax - TOLERANCE > oxMin;
+        if (!xOverlap) continue;
 
-      const gap = direction > 0
-        ? other.pos_z - (item.pos_z + item.width_cm)
-        : item.pos_z - (other.pos_z + other.width_cm);
-      if (gap >= -TOLERANCE) {
-        limit = Math.min(limit, Math.max(0, gap));
+        const gap = direction > 0
+          ? other.pos_z - (gi.pos_z + gi.width_cm)
+          : gi.pos_z - (other.pos_z + other.width_cm);
+        if (gap >= -TOLERANCE) {
+          limit = Math.min(limit, Math.max(0, gap));
+        }
       }
     }
   }
@@ -457,7 +466,7 @@ export function getColumnGroup(itemId: string, allItems: LayoutItem[]): string[]
       const topY = currentItem.pos_y + currentItem.height_cm;
       for (const other of allItems) {
         if (group.has(other.id)) continue;
-        if (Math.abs(other.pos_y - topY) <= TOLERANCE) {
+        if (Math.abs(other.pos_y - topY) <= 0.5) {
           const ixMin = Math.max(currentItem.pos_x, other.pos_x);
           const ixMax = Math.min(currentItem.pos_x + currentItem.length_cm, other.pos_x + other.length_cm);
           const izMin = Math.max(currentItem.pos_z, other.pos_z);
@@ -480,7 +489,7 @@ export function getColumnGroup(itemId: string, allItems: LayoutItem[]): string[]
           if (group.has(other.id)) continue;
           const otherTopY = other.pos_y + other.height_cm;
           
-          if (Math.abs(otherTopY - bottomY) <= TOLERANCE) {
+          if (Math.abs(otherTopY - bottomY) <= 0.5) {
             const ixMin = Math.max(currentItem.pos_x, other.pos_x);
             const ixMax = Math.min(currentItem.pos_x + currentItem.length_cm, other.pos_x + other.length_cm);
             const izMin = Math.max(currentItem.pos_z, other.pos_z);
@@ -576,6 +585,10 @@ export function calculatePlacementZones(
     // Grid baseline
     for (let x = 0; x <= container.length_cm - l; x += 10) xSet.add(x);
     for (let z = 0; z <= container.width_cm - w; z += 10) zSet.add(z);
+    
+    // Exact container edges
+    if (container.length_cm - l >= 0) xSet.add(container.length_cm - l);
+    if (container.width_cm - w >= 0) zSet.add(container.width_cm - w);
     
     // Exact edges from existing items
     for (const other of filteredItems) {
@@ -1431,8 +1444,15 @@ export const usePlannerStore = create<PlannerState>()(
       const item = state.layoutItems.find((i) => i.id === itemId);
       if (!item || !container) return state;
 
-      const maxSlide = computeMaxSlideDistance(
-        item, axis, direction, container, state.layoutItems, [itemId]
+      // Move the entire column group together, not just the clicked item
+      const groupIds = state.selectedGroupIds.length > 0
+        ? state.selectedGroupIds
+        : getColumnGroup(itemId, state.layoutItems);
+
+      const groupItems = state.layoutItems.filter(i => groupIds.includes(i.id));
+
+      const maxSlide = computeGroupMaxSlideDistance(
+        groupItems, axis, direction, container, state.layoutItems, groupIds
       );
       // Already flush against the wall/neighbor in this direction —
       // nothing to do.
@@ -1441,7 +1461,7 @@ export const usePlannerStore = create<PlannerState>()(
       const delta = Math.min(NUDGE_STEP_CM, maxSlide);
 
       const updatedItems = state.layoutItems.map((i) =>
-        i.id === itemId
+        groupIds.includes(i.id)
           ? axis === 'x'
             ? { ...i, pos_x: Math.round((i.pos_x + direction * delta) * 100) / 100 }
             : { ...i, pos_z: Math.round((i.pos_z + direction * delta) * 100) / 100 }
