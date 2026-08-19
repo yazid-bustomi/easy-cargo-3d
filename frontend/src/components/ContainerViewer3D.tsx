@@ -1211,7 +1211,7 @@ export function ContainerViewer3D() {
     );
   }
 
-  const rotationButtons: Array<{
+  const allRotationButtons: Array<{
     dir: RotateDirection;
     label: string;
     icon: string;
@@ -1223,6 +1223,14 @@ export function ContainerViewer3D() {
     { dir: "tip-right", label: "Putar Kanan Bawah", icon: "⤸" },
     { dir: "tip-left", label: "Putar Kiri Bawah", icon: "⤹" },
   ];
+
+  const rotationButtons = allRotationButtons.filter(btn => {
+    // Hide tipping options if this is a group (more than 1 item)
+    if (selectedGroupIds.length > 1) {
+      return btn.dir === "spin-right" || btn.dir === "spin-left";
+    }
+    return true;
+  });
 
   return (
     <div

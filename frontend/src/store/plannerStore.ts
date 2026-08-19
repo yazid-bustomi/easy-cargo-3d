@@ -440,43 +440,63 @@ function computeMaxSlideDistance(
 // ── Column Grouping ──────────────────────────────────────────────────
 
 export function getColumnGroup(itemId: string, allItems: LayoutItem[]): string[] {
-  const baseItem = allItems.find(i => i.id === itemId);
-  if (!baseItem) return [itemId];
+  const group = new Set<string>();
+  group.add(itemId);
 
-  const group: string[] = [itemId];
+  let newlyAdded = [itemId];
+  
+  while (newlyAdded.length > 0) {
+    const currentBatch = newlyAdded;
+    newlyAdded = [];
 
-  // Walk upward: find items stacked directly on top
-  const findAbove = (currentItem: LayoutItem) => {
-    const topY = currentItem.pos_y + currentItem.height_cm;
-    
-    for (const other of allItems) {
-      if (group.includes(other.id)) continue;
-      
-      // Check if other sits exactly on top
-      if (Math.abs(other.pos_y - topY) > TOLERANCE) continue;
-      
-      // Check XZ overlap (must overlap significantly)
-      const ixMin = Math.max(currentItem.pos_x, other.pos_x);
-      const ixMax = Math.min(currentItem.pos_x + currentItem.length_cm, other.pos_x + other.length_cm);
-      const izMin = Math.max(currentItem.pos_z, other.pos_z);
-      const izMax = Math.min(currentItem.pos_z + currentItem.width_cm, other.pos_z + other.width_cm);
-      
-      if (ixMax - ixMin > TOLERANCE && izMax - izMin > TOLERANCE) {
-        const overlapArea = (ixMax - ixMin) * (izMax - izMin);
-        const otherArea = other.length_cm * other.width_cm;
-        
-        // Must be fully supported by this item (or by the group)
-        if (overlapArea >= otherArea * 0.99) {
-          group.push(other.id);
-          findAbove(other); // Recursively find items above this one
+    for (const currentId of currentBatch) {
+      const currentItem = allItems.find(i => i.id === currentId);
+      if (!currentItem) continue;
+
+      // 1. Find all items resting ON TOP of currentItem
+      const topY = currentItem.pos_y + currentItem.height_cm;
+      for (const other of allItems) {
+        if (group.has(other.id)) continue;
+        if (Math.abs(other.pos_y - topY) <= TOLERANCE) {
+          const ixMin = Math.max(currentItem.pos_x, other.pos_x);
+          const ixMax = Math.min(currentItem.pos_x + currentItem.length_cm, other.pos_x + other.length_cm);
+          const izMin = Math.max(currentItem.pos_z, other.pos_z);
+          const izMax = Math.min(currentItem.pos_z + currentItem.width_cm, other.pos_z + other.width_cm);
+          
+          if (ixMax - ixMin > TOLERANCE && izMax - izMin > TOLERANCE) {
+            group.add(other.id);
+            newlyAdded.push(other.id);
+          }
+        }
+      }
+
+      // 2. Find all items that currentItem rests ON (its supports)
+      // BUT ONLY IF currentItem is NOT the originally clicked item!
+      // This ensures if we click a top box (or bridge), we don't grab its legs.
+      // But if we click a leg and grab the bridge (via step 1), we DO grab the other leg.
+      if (currentId !== itemId) {
+        const bottomY = currentItem.pos_y;
+        for (const other of allItems) {
+          if (group.has(other.id)) continue;
+          const otherTopY = other.pos_y + other.height_cm;
+          
+          if (Math.abs(otherTopY - bottomY) <= TOLERANCE) {
+            const ixMin = Math.max(currentItem.pos_x, other.pos_x);
+            const ixMax = Math.min(currentItem.pos_x + currentItem.length_cm, other.pos_x + other.length_cm);
+            const izMin = Math.max(currentItem.pos_z, other.pos_z);
+            const izMax = Math.min(currentItem.pos_z + currentItem.width_cm, other.pos_z + other.width_cm);
+            
+            if (ixMax - ixMin > TOLERANCE && izMax - izMin > TOLERANCE) {
+              group.add(other.id);
+              newlyAdded.push(other.id);
+            }
+          }
         }
       }
     }
-  };
+  }
 
-  findAbove(baseItem);
-  
-  return group;
+  return Array.from(group);
 }
 
 // ── Placement Zone Calculator ────────────────────────────────────────
@@ -501,20 +521,50 @@ export function calculatePlacementZones(
 ): PlacementZone[] {
   const zones: PlacementZone[] = [];
   
-  const product = usePlannerStore.getState().products.find(p => p.id === selectedItem.product_id);
-  if (!product) return [];
+  const isGroup = ignoreIds.length > 1;
 
-  const oL = product.length_cm;
-  const oW = product.width_cm;
-  const oH = product.height_cm;
+  let orientations: { l: number; w: number; h: number; rx: number; ry: number; rz: number }[];
+  
+  let minX = selectedItem.pos_x, maxX = selectedItem.pos_x + selectedItem.length_cm;
+  let minZ = selectedItem.pos_z, maxZ = selectedItem.pos_z + selectedItem.width_cm;
+  let minH = selectedItem.pos_y, maxH = selectedItem.pos_y + selectedItem.height_cm;
 
-  const orientations = getAllowedOrientations(
-    oL, oW, oH,
-    selectedItem.this_side_up,
-    selectedItem.can_be_laid_down
-  ).map(o => ({ l: o.l, w: o.w, h: o.h, rx: o.rx, ry: o.ry, rz: o.rz }));
+  if (isGroup) {
+    const groupItems = allItems.filter(i => ignoreIds.includes(i.id));
+    for (const gi of groupItems) {
+      if (gi.pos_x < minX) minX = gi.pos_x;
+      if (gi.pos_x + gi.length_cm > maxX) maxX = gi.pos_x + gi.length_cm;
+      if (gi.pos_z < minZ) minZ = gi.pos_z;
+      if (gi.pos_z + gi.width_cm > maxZ) maxZ = gi.pos_z + gi.width_cm;
+      if (gi.pos_y < minH) minH = gi.pos_y;
+      if (gi.pos_y + gi.height_cm > maxH) maxH = gi.pos_y + gi.height_cm;
+    }
+    const groupL = maxX - minX;
+    const groupW = maxZ - minZ;
+    const groupH = maxH - minH;
+
+    // For groups, DO NOT change orientation during drag
+    orientations = [{
+      l: groupL,
+      w: groupW,
+      h: groupH,
+      rx: selectedItem.rot_x,
+      ry: selectedItem.rot_y,
+      rz: selectedItem.rot_z
+    }];
+  } else {
+    const product = usePlannerStore.getState().products.find(p => p.id === selectedItem.product_id);
+    if (!product) return [];
+
+    orientations = getAllowedOrientations(
+      product.length_cm, product.width_cm, product.height_cm,
+      selectedItem.this_side_up,
+      selectedItem.can_be_laid_down
+    ).map(o => ({ l: o.l, w: o.w, h: o.h, rx: o.rx, ry: o.ry, rz: o.rz }));
+  }
 
   const filteredItems = allItems.filter(i => !ignoreIds.includes(i.id));
+  const bottomItems = isGroup ? allItems.filter(i => ignoreIds.includes(i.id) && Math.abs(i.pos_y - minH) <= TOLERANCE) : [selectedItem];
 
   for (const orient of orientations) {
     const { l, w, h, rx, ry, rz } = orient;
@@ -543,21 +593,76 @@ export function calculatePlacementZones(
 
     for (const x of xCandidates) {
       for (const z of zCandidates) {
-        const dropY = calculateDropY(x, z, l, w, undefined, filteredItems);
+        
+        let maxDropY = 0;
+        for (const bi of bottomItems) {
+           const dx = isGroup ? bi.pos_x - minX : 0;
+           const dz = isGroup ? bi.pos_z - minZ : 0;
+           const dropY = calculateDropY(x + dx, z + dz, isGroup ? bi.length_cm : l, isGroup ? bi.width_cm : w, undefined, filteredItems);
+           if (dropY > maxDropY) maxDropY = dropY;
+        }
+
+        const dropY = maxDropY;
         
         if (dropY + h > container.height_cm + TOLERANCE) continue;
-        if (!checkFullSupport(x, dropY, z, l, w, undefined, filteredItems)) continue;
+
+        let allSupported = true;
+        for (const bi of bottomItems) {
+           const dx = isGroup ? bi.pos_x - minX : 0;
+           const dz = isGroup ? bi.pos_z - minZ : 0;
+           if (!checkFullSupport(x + dx, dropY, z + dz, isGroup ? bi.length_cm : l, isGroup ? bi.width_cm : w, undefined, filteredItems)) {
+             allSupported = false;
+             break;
+           }
+        }
+        if (!allSupported) continue;
+
+        let hasCollision = false;
+        if (isGroup) {
+           const groupItems = allItems.filter(i => ignoreIds.includes(i.id));
+           for (const gi of groupItems) {
+              const dx = gi.pos_x - minX;
+              const dy = gi.pos_y - minH;
+              const dz = gi.pos_z - minZ;
+              const testItem = { ...gi, pos_x: x + dx, pos_y: dropY + dy, pos_z: z + dz };
+              if (checkCollision(testItem, filteredItems, container)) {
+                 hasCollision = true;
+                 break;
+              }
+           }
+        } else {
+           const testItem = { pos_x: x, pos_y: dropY, pos_z: z, length_cm: l, width_cm: w, height_cm: h };
+           if (checkCollision(testItem, filteredItems, container)) hasCollision = true;
+        }
         
-        const testItem = { pos_x: x, pos_y: dropY, pos_z: z, length_cm: l, width_cm: w, height_cm: h };
-        if (!checkCollision(testItem, filteredItems, container)) {
-          // Check if we already have a zone very close to this (deduplication)
+        if (!hasCollision) {
+          const dx = isGroup ? selectedItem.pos_x - minX : 0;
+          const dz = isGroup ? selectedItem.pos_z - minZ : 0;
+          const dy = isGroup ? selectedItem.pos_y - minH : 0;
+          
+          const finalX = x + dx;
+          const finalY = dropY + dy;
+          const finalZ = z + dz;
+          
           const isDuplicate = zones.some(z2 => 
-            z2.l === l && z2.w === w && z2.h === h &&
-            Math.abs(z2.x - x) < 0.1 && Math.abs(z2.z - z) < 0.1 && Math.abs(z2.y - dropY) < 0.1
+            z2.l === (isGroup ? selectedItem.length_cm : l) && 
+            z2.w === (isGroup ? selectedItem.width_cm : w) && 
+            z2.h === (isGroup ? selectedItem.height_cm : h) &&
+            Math.abs(z2.x - finalX) < 0.1 && Math.abs(z2.z - finalZ) < 0.1 && Math.abs(z2.y - finalY) < 0.1
           );
           
           if (!isDuplicate) {
-            zones.push({ x, y: dropY, z, rot_x: rx, rot_y: ry, rot_z: rz, l, w, h });
+            zones.push({ 
+              x: finalX, 
+              y: finalY, 
+              z: finalZ, 
+              rot_x: rx, 
+              rot_y: ry, 
+              rot_z: rz, 
+              l: isGroup ? selectedItem.length_cm : l, 
+              w: isGroup ? selectedItem.width_cm : w, 
+              h: isGroup ? selectedItem.height_cm : h 
+            });
           }
         }
       }
@@ -608,31 +713,48 @@ export type RotateDirection = 'spin-right' | 'spin-left' | 'tip-forward' | 'tip-
 
 
 // ── Rotation placement helper ─────────────────────────────────────────
-// When a product is tipped/laid down, its footprint can grow into another
+// When a product or group is tipped/laid down, its footprint can grow into another
 // item even though there is free space a little behind/in front/side of it.
 // Search nearby X/Z positions instead of failing immediately at the old spot.
-function findNearestValidPlacement(
-  item: LayoutItem,
-  testL: number,
-  testW: number,
-  testH: number,
+function findNearestValidGroupPlacement(
+  groupItemsRotated: LayoutItem[],
   container: ContainerType,
   allItems: LayoutItem[],
-): { x: number; y: number; z: number } | null {
+): { dx: number; dy: number; dz: number } | null {
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-  const maxX = container.length_cm - testL;
-  const maxZ = container.width_cm - testW;
-  if (maxX < -TOLERANCE || maxZ < -TOLERANCE || testH > container.height_cm + TOLERANCE) {
+
+  let minX = Infinity, maxX = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  let minH = Infinity, maxH = -Infinity;
+
+  for (const gi of groupItemsRotated) {
+    if (gi.pos_x < minX) minX = gi.pos_x;
+    if (gi.pos_x + gi.length_cm > maxX) maxX = gi.pos_x + gi.length_cm;
+    if (gi.pos_z < minZ) minZ = gi.pos_z;
+    if (gi.pos_z + gi.width_cm > maxZ) maxZ = gi.pos_z + gi.width_cm;
+    if (gi.pos_y < minH) minH = gi.pos_y;
+    if (gi.pos_y + gi.height_cm > maxH) maxH = gi.pos_y + gi.height_cm;
+  }
+
+  const bottomItems = groupItemsRotated.filter(gi => Math.abs(gi.pos_y - minH) <= TOLERANCE);
+
+  const groupL = maxX - minX;
+  const groupW = maxZ - minZ;
+  const groupH = maxH - minH;
+
+  const maxAllowableX = container.length_cm - groupL;
+  const maxAllowableZ = container.width_cm - groupW;
+  if (maxAllowableX < -TOLERANCE || maxAllowableZ < -TOLERANCE || groupH > container.height_cm + TOLERANCE) {
     return null;
   }
 
-  const startX = clamp(item.pos_x, 0, Math.max(0, maxX));
-  const startZ = clamp(item.pos_z, 0, Math.max(0, maxZ));
+  const startX = clamp(minX, 0, Math.max(0, maxAllowableX));
+  const startZ = clamp(minZ, 0, Math.max(0, maxAllowableZ));
 
   const candidates = new Map<string, { x: number; z: number; d2: number }>();
   const addCandidate = (x: number, z: number) => {
-    x = clamp(x, 0, Math.max(0, maxX));
-    z = clamp(z, 0, Math.max(0, maxZ));
+    x = clamp(x, 0, Math.max(0, maxAllowableX));
+    z = clamp(z, 0, Math.max(0, maxAllowableZ));
     const key = `${Math.round(x * 100) / 100}|${Math.round(z * 100) / 100}`;
     if (!candidates.has(key)) {
       const dx = x - startX;
@@ -641,15 +763,9 @@ function findNearestValidPlacement(
     }
   };
 
-  // First test the original position.
   addCandidate(startX, startZ);
 
-  // Search outward. A 5 cm grid gives smooth movement while remaining
-  // practical for furniture-sized boxes.
-  const maxRadius = Math.min(
-    Math.max(container.length_cm, container.width_cm),
-    300,
-  );
+  const maxRadius = Math.min(Math.max(container.length_cm, container.width_cm), 300);
   for (let r = 5; r <= maxRadius; r += 5) {
     addCandidate(startX - r, startZ);
     addCandidate(startX + r, startZ);
@@ -662,48 +778,70 @@ function findNearestValidPlacement(
     if (r >= 100) break;
   }
 
-  // Also try exact packing edges around existing products and container walls.
   addCandidate(0, startZ);
-  addCandidate(maxX, startZ);
+  addCandidate(maxAllowableX, startZ);
   addCandidate(startX, 0);
-  addCandidate(startX, maxZ);
+  addCandidate(startX, maxAllowableZ);
 
-  for (const other of allItems) {
-    if (other.id === item.id) continue;
-    addCandidate(other.pos_x - testL, other.pos_z);
+  const groupIds = groupItemsRotated.map(g => g.id);
+  const otherItems = allItems.filter(i => !groupIds.includes(i.id));
+
+  for (const other of otherItems) {
+    addCandidate(other.pos_x - groupL, other.pos_z);
     addCandidate(other.pos_x + other.length_cm, other.pos_z);
-    addCandidate(other.pos_x, other.pos_z - testW);
+    addCandidate(other.pos_x, other.pos_z - groupW);
     addCandidate(other.pos_x, other.pos_z + other.width_cm);
   }
 
   const ordered = [...candidates.values()].sort((a, b) => a.d2 - b.d2);
 
   for (const c of ordered) {
-    const y = calculateDropY(
-      c.x,
-      c.z,
-      testL,
-      testW,
-      item.id,
-      allItems,
-    );
+    const dx = c.x - minX;
+    const dz = c.z - minZ;
 
-    if (y + testH > container.height_cm + TOLERANCE) continue;
+    let maxDropY = 0;
+    for (const bi of bottomItems) {
+      const dropY = calculateDropY(
+        bi.pos_x + dx,
+        bi.pos_z + dz,
+        bi.length_cm,
+        bi.width_cm,
+        undefined,
+        otherItems
+      );
+      if (dropY > maxDropY) maxDropY = dropY;
+    }
 
-    const testItem = {
-      ...item,
-      pos_x: c.x,
-      pos_y: y,
-      pos_z: c.z,
-      length_cm: testL,
-      width_cm: testW,
-      height_cm: testH,
-    };
+    const dy = maxDropY - minH;
 
-    if (checkCollision(testItem, allItems, container)) continue;
-    if (!checkFullSupport(c.x, y, c.z, testL, testW, item.id, allItems)) continue;
+    if (maxDropY + groupH > container.height_cm + TOLERANCE) continue;
 
-    return { x: c.x, y, z: c.z };
+    let allSupported = true;
+    for (const bi of bottomItems) {
+      if (!checkFullSupport(bi.pos_x + dx, bi.pos_y + dy, bi.pos_z + dz, bi.length_cm, bi.width_cm, undefined, otherItems)) {
+        allSupported = false;
+        break;
+      }
+    }
+    if (!allSupported) continue;
+
+    let hasCollision = false;
+    for (const gi of groupItemsRotated) {
+      const testItem = {
+        ...gi,
+        pos_x: gi.pos_x + dx,
+        pos_y: gi.pos_y + dy,
+        pos_z: gi.pos_z + dz,
+      };
+      if (checkCollision(testItem, otherItems, container)) {
+        hasCollision = true;
+        break;
+      }
+    }
+
+    if (hasCollision) continue;
+
+    return { dx, dy, dz };
   }
 
   return null;
@@ -1145,17 +1283,13 @@ export const usePlannerStore = create<PlannerState>()(
       const product = state.products.find((p) => p.id === item?.product_id);
       if (!item || !container || !product) return state;
 
-      const origL = product.length_cm;
-      const origW = product.width_cm;
-      const origH = product.height_cm;
+      const groupIds = getColumnGroup(itemId, state.layoutItems);
+      const isGroup = groupIds.length > 1;
 
-      const euler = new THREE.Euler(
-        item.rot_x * Math.PI / 180,
-        item.rot_y * Math.PI / 180,
-        item.rot_z * Math.PI / 180,
-        'XYZ'
-      );
-      const quaternion = new THREE.Quaternion().setFromEuler(euler);
+      // Restrict rotation for groups (no tipping)
+      if (isGroup && direction !== 'spin-left' && direction !== 'spin-right') {
+        return { contextMenu: null };
+      }
 
       const deltaQ = new THREE.Quaternion();
       switch (direction) {
@@ -1179,60 +1313,82 @@ export const usePlannerStore = create<PlannerState>()(
           break;
       }
 
-      // Local-space rotation: keep the existing heading, then apply the
-      // requested 90-degree spin/tip.
-      quaternion.multiply(deltaQ);
+      // We pivot around the center of the selected item's footprint
+      const pivotCX = item.pos_x + item.length_cm / 2;
+      const pivotCZ = item.pos_z + item.width_cm / 2;
 
-      const newEuler = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
-      const normalizeDeg = (deg: number) => {
-        const n = Math.round(deg / 90) * 90;
-        return ((n % 360) + 360) % 360;
-      };
+      const groupItemsRotated: LayoutItem[] = [];
 
-      const newRotX = normalizeDeg(newEuler.x * 180 / Math.PI);
-      const newRotY = normalizeDeg(newEuler.y * 180 / Math.PI);
-      const newRotZ = normalizeDeg(newEuler.z * 180 / Math.PI);
+      for (const gid of groupIds) {
+        const gi = state.layoutItems.find(i => i.id === gid);
+        if (!gi) continue;
+        const gProd = state.products.find(p => p.id === gi.product_id);
+        if (!gProd) continue;
 
-      if (!isRotationAllowed(
-        newRotX,
-        newRotY,
-        newRotZ,
-        item.this_side_up,
-        item.can_be_laid_down,
-      )) {
-        return { contextMenu: null };
+        const origL = gProd.length_cm;
+        const origW = gProd.width_cm;
+        const origH = gProd.height_cm;
+
+        const euler = new THREE.Euler(
+          gi.rot_x * Math.PI / 180,
+          gi.rot_y * Math.PI / 180,
+          gi.rot_z * Math.PI / 180,
+          'XYZ'
+        );
+        const quaternion = new THREE.Quaternion().setFromEuler(euler);
+        quaternion.multiply(deltaQ);
+
+        const newEuler = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+        const normalizeDeg = (deg: number) => {
+          const n = Math.round(deg / 90) * 90;
+          return ((n % 360) + 360) % 360;
+        };
+
+        const newRotX = normalizeDeg(newEuler.x * 180 / Math.PI);
+        const newRotY = normalizeDeg(newEuler.y * 180 / Math.PI);
+        const newRotZ = normalizeDeg(newEuler.z * 180 / Math.PI);
+
+        if (!isRotationAllowed(newRotX, newRotY, newRotZ, gi.this_side_up, gi.can_be_laid_down)) {
+          return { contextMenu: null }; // Abort if any item in group cannot be rotated this way
+        }
+
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
+
+        const testL = Math.round(Math.abs(right.x * origL) + Math.abs(up.x * origH) + Math.abs(forward.x * origW));
+        const testH = Math.round(Math.abs(right.y * origL) + Math.abs(up.y * origH) + Math.abs(forward.y * origW));
+        const testW = Math.round(Math.abs(right.z * origL) + Math.abs(up.z * origH) + Math.abs(forward.z * origW));
+
+        // Calculate new center offset relative to pivot
+        const cx = gi.pos_x + gi.length_cm / 2;
+        const cz = gi.pos_z + gi.width_cm / 2;
+        
+        const offset = new THREE.Vector3(cx - pivotCX, 0, cz - pivotCZ);
+        offset.applyQuaternion(deltaQ);
+
+        const newCX = pivotCX + offset.x;
+        const newCZ = pivotCZ + offset.z;
+
+        const newX = newCX - testL / 2;
+        const newZ = newCZ - testW / 2;
+
+        groupItemsRotated.push({
+          ...gi,
+          pos_x: Math.round(newX * 100) / 100,
+          pos_y: gi.pos_y,
+          pos_z: Math.round(newZ * 100) / 100,
+          length_cm: testL,
+          width_cm: testW,
+          height_cm: testH,
+          rot_x: newRotX,
+          rot_y: newRotY,
+          rot_z: newRotZ,
+        });
       }
 
-      // Compute the new axis-aligned footprint after the rotation.
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
-      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
-
-      const testL = Math.round(
-        Math.abs(right.x * origL) +
-        Math.abs(up.x * origH) +
-        Math.abs(forward.x * origW)
-      );
-      const testH = Math.round(
-        Math.abs(right.y * origL) +
-        Math.abs(up.y * origH) +
-        Math.abs(forward.y * origW)
-      );
-      const testW = Math.round(
-        Math.abs(right.z * origL) +
-        Math.abs(up.z * origH) +
-        Math.abs(forward.z * origW)
-      );
-
-      // Critical fix: do not require the rotated box to fit exactly where it
-      // stood before. Search the nearest valid X/Z position and drop it onto
-      // the floor / a fully supporting item. This allows a product in the
-      // middle of a layout to be laid down into free space behind it.
-      const placement = findNearestValidPlacement(
-        item,
-        testL,
-        testW,
-        testH,
+      const placement = findNearestValidGroupPlacement(
+        groupItemsRotated,
         container,
         state.layoutItems,
       );
@@ -1241,22 +1397,19 @@ export const usePlannerStore = create<PlannerState>()(
         return { contextMenu: null };
       }
 
-      const updatedItems = state.layoutItems.map((i) =>
-        i.id === itemId
-          ? {
-              ...i,
-              pos_x: placement.x,
-              pos_y: placement.y,
-              pos_z: placement.z,
-              length_cm: testL,
-              width_cm: testW,
-              height_cm: testH,
-              rot_x: newRotX,
-              rot_y: newRotY,
-              rot_z: newRotZ,
-            }
-          : i
-      );
+      // Apply the placement translation to all items in the rotated group
+      const updatedItems = state.layoutItems.map(i => {
+        const rotatedGi = groupItemsRotated.find(g => g.id === i.id);
+        if (rotatedGi) {
+          return {
+            ...rotatedGi,
+            pos_x: Math.round((rotatedGi.pos_x + placement.dx) * 100) / 100,
+            pos_y: Math.round((rotatedGi.pos_y + placement.dy) * 100) / 100,
+            pos_z: Math.round((rotatedGi.pos_z + placement.dz) * 100) / 100,
+          };
+        }
+        return i;
+      });
 
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(JSON.parse(JSON.stringify(updatedItems)));
