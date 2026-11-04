@@ -1,410 +1,324 @@
-# Web Container Loading Planner 3D
+# Easy Cargo 3D — Container Loading Planner
 
-Professional container loading visualization and optimization tool built with React + TypeScript + Three.js + MySQL.
+Web app for planning how cartons are loaded into a shipping container. Pick a standard or custom container, add products with their size, weight and handling rules, then place them by hand, let the packing algorithm fill the container, or ask an AI model for a layout. Results are shown in 3D, saved per project, and exported as a PNG or a printable report.
 
-## Features
+Built with React + TypeScript + Three.js (React Three Fiber) on the frontend and Node.js + Express + Sequelize + MySQL on the backend.
 
-✨ **Modern 3D Visualization**
-- React Three Fiber for real-time 3D rendering
-- Orbit camera controls (rotate, zoom, pan)
-- Interactive product placement and manipulation
-- Green/red highlighting for valid/invalid positions
-- Drag & drop support (ready for implementation)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-R3F-000000?logo=threedotjs&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-Express-339933?logo=node.js&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-Sequelize-4479A1?logo=mysql&logoColor=white)
 
-📦 **Container Management**
-- Pre-built container types: 20', 40', 40' HC (Safe)
-- Custom container creation and management
-- Container capacity tracking (volume & weight)
+---
 
-🎯 **Smart Packing**
-- 3D Bin Packing Algorithm (EMS heuristic)
-- Auto-packing with one click
-- Respects:
-  - This Side Up constraints
-  - Rotation restrictions
-  - Stackability rules
-  - Weight capacity limits
+## Contents
 
-👥 **Product Management**
-- Product groups with color-coding
-- Collapse/expand groups
-- Customizable group colors
-- Bulk product operations
+- [Walkthrough](#walkthrough)
+- [Toolbar reference](#toolbar-reference)
+- [Mouse and keyboard controls](#mouse-and-keyboard-controls)
+- [Installation](#installation)
+- [API endpoints](#api-endpoints)
+- [Project structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
 
-🛠️ **Layout Operations**
-- **Undo/Redo**: Full history support (50 actions)
-- **Reset Layout**: Clear all items
-- **Manual Packing**: Add items one by one
-- **Auto Packing**: Automatic placement algorithm
-- **Save/Load**: Persistent layout storage
+---
 
-📊 **Real-time Statistics**
-- Volume usage percentage
-- Weight usage percentage
-- Item count
-- Empty space visualization
-- Dynamic progress bars
+## Walkthrough
 
-📄 **Export Options**
-- **PDF Report**: Complete layout report with details
-- **PNG Screenshot**: 3D view snapshot
+All screenshots use sample data (`Product 1`, `Product 2`).
 
-## Architecture
+### 1. Login
 
-```
-project-root/
-├── backend/              # Node.js Express API
-│   ├── src/
-│   │   ├── config/      # Database configuration
-│   │   ├── models/      # Sequelize ORM models
-│   │   ├── services/    # Business logic
-│   │   ├── controllers/ # Route handlers
-│   │   ├── routes/      # API routes
-│   │   ├── middleware/  # Express middleware
-│   │   ├── utils/       # Helper functions & bin packing
-│   │   └── server.js    # Express app entry
-│   ├── .env
-│   └── package.json
-│
-├── frontend/            # React TypeScript frontend
-│   ├── src/
-│   │   ├── components/  # React components
-│   │   ├── pages/       # Page components
-│   │   ├── store/       # Zustand state management
-│   │   ├── services/    # API client
-│   │   ├── utils/       # Helper functions
-│   │   ├── App.tsx
-│   │   └── index.tsx
-│   ├── public/
-│   ├── .env
-│   ├── tailwind.config.js
-│   ├── tsconfig.json
-│   └── package.json
-│
-├── db.js               # Database connection (legacy)
-├── binpacking.js       # Bin packing algorithm (legacy)
-├── schmea.sql          # Database schema
-└── README.md
-```
+![Login page](docs/screenshots/01-login.png)
 
-## Database Schema
+Sign in with an account from the `users` table. The seed script creates a default admin (see [Installation](#installation)). Login returns a JWT that the app sends with every API call; **Logout** ends the session.
 
-**Key Tables:**
-- `users` - User authentication & authorization
-- `container_types` - Available containers (20', 40', 40'HC + custom)
-- `product_groups` - Product grouping with colors
-- `products` - Master products with dimensions & constraints
-- `layouts` - Planning sessions per container
-- `layout_items` - Placed products with coordinates/rotation
-- `layout_history` - Undo/redo snapshots
-- `audit_logs` - Activity tracking
+### 2. Create a project with a standard container
 
-## Setup & Installation
+![Project setup with standard containers](docs/screenshots/02-setup-standard-container.png)
 
-### 1. Database Setup
+The setup page has two modes: **Create New Project** and **Open Saved Project**.
+
+1. Enter a **Project Name**.
+2. Under **Container Type → Standard Container**, pick one of the built-in containers. Each card shows the inside dimensions and maximum payload:
+
+   | Container | Inside size (L × W × H) | Max payload |
+   |-----------|-------------------------|-------------|
+   | 20' Standard | 590 × 235 × 239 cm | 28.2 t |
+   | 40' Standard | 1203 × 235 × 239 cm | 26.7 t |
+   | 40' High Cube | 1203 × 235 × 269 cm | 26.5 t |
+   | 45' High Cube | 1351 × 235 × 269 cm | 25.6 t |
+
+3. Optional: choose an **AI Provider** (Gemini or OpenAI) and paste your API key if you want to use **AI Pack** later. The key is kept only in the browser session and is not saved to the database or local storage.
+4. Click **Start Loading**.
+
+### 3. Or define a custom container size
+
+![Project setup with a custom container size](docs/screenshots/03-setup-custom-container.png)
+
+Choose **Custom Size** to plan for a truck box, a pallet area or any non-standard space. Enter a name, **Length / Width / Height** in cm and **Max Payload** in kg.
+
+### 4. Planner workspace
+
+![Empty planner workspace](docs/screenshots/04-planner-empty.png)
+
+After **Start Loading**, the planner opens with:
+
+- **Toolbar** (top): project name, undo/redo, save, packing tools, export. See [Toolbar reference](#toolbar-reference).
+- **Products panel** (left): products for this project.
+- **3D view** (center): the container drawn to scale. Drag to orbit, scroll to zoom.
+- **Container stats** (top right): capacity, what is loaded and what remains.
+  - Row 1 (truck icon): container capacity, weight and volume, and its length.
+  - Row 2 (box icon): weight and volume of the items loaded so far.
+  - Row 3 (layers icon): loaded totals and **Free meters**, the container length still free after loading (4.20 m of 6.00 m in step 5).
+- **Views** (right): jump to the right-side, left-side or top view.
+
+### 5. Add products and load them
+
+![Planner with products loaded](docs/screenshots/05-planner-products-loaded.png)
+
+Click **+ Add Product** and fill in the product form:
+
+| Field | Meaning |
+|-------|---------|
+| Name | Product name, also printed on each box in 3D |
+| Group | Letter used to group and color products (A, B, …) |
+| L / W / H (cm) | Carton size |
+| Weight / pc (kg) | Used for payload checks and totals |
+| Total PCS | How many pieces of this product need to be loaded |
+| Color | Box color in the 3D view |
+
+**3D Preview** shows the carton with its label before it is placed.
+
+**Constraints** are respected by both **Auto Pack** and **AI Pack**:
+
+| Constraint | Effect |
+|------------|--------|
+| This Side Up | The top face must stay on top; the box is never flipped |
+| Boleh Ditidurkan (can be laid down) | With This Side Up on, still allow laying the box on its side |
+| Boleh Ditumpuk (stackable) | Other boxes may be placed on top; turn off for fragile items |
+| Harus Di Atas (must be on top) | Must be placed in the top layer, e.g. light or fragile goods |
+
+Each product card shows loaded vs. total quantity (for example `9 / 57 pcs`). Ways to load:
+
+- **Insert**: places one piece at the next free position, packed tight from the front-left corner. Click repeatedly to add more.
+- **Auto Pack** (toolbar): fills the container with all remaining pieces using the 3D bin-packing algorithm.
+- **AI Pack** (toolbar): sends the container and product list to Gemini or OpenAI and places the returned layout.
+
+Product actions:
+
+- **Update All (Terapkan ke Kontainer)**: apply edited size, weight or rules to boxes already in the container.
+- **Clear (Kosongkan)**: remove this product's boxes from the container but keep the product.
+- **Delete Product**: remove the product and its boxes.
+
+The item count in the top-right of the toolbar shows how many boxes are loaded (`39 items` in the screenshot).
+
+### 6. Save and reopen projects
+
+![Saved projects list](docs/screenshots/06-open-saved-project.png)
+
+**Save** stores the project (container, products and every box position) in MySQL. The planner also auto-saves every 2 minutes while you work. **Open Saved Project** lists all projects with container type, size, item count, total weight and dates. Search by project or container name, then click **Open** to continue.
+
+Use the **Duplicate Project** button in the toolbar to try another arrangement without changing the original. The copy appears as `Container A (Copy)`.
+
+### 7. Export
+
+![PNG export of the 3D layout](docs/screenshots/07-export-png.png)
+
+- **Camera button**: downloads the current 3D view as a PNG (example above).
+- **Print Report**: opens a 2-page report with the right and left views, container details and a product summary, ready to print or save as PDF.
+- **Copy AI Image Prompt**: copies a ready-to-paste prompt, filled with the real container size and product list, for an AI image generator. It asks for four layout variants with right and left views.
+
+---
+
+## Toolbar reference
+
+| Button | What it does |
+|--------|--------------|
+| ← Setup | Back to the project setup page |
+| Project name | Double-click to rename |
+| Undo / Redo | Step back or forward through layout changes |
+| Lock | Lock or unlock camera rotation, useful while moving boxes |
+| Duplicate | Copy the current project |
+| Save | Save the project to the database |
+| Auto Pack | Fill the container automatically (bin-packing algorithm) |
+| AI Pack | Ask Gemini or OpenAI for a layout (needs an API key from setup) |
+| Copy AI Image Prompt | Copy an image-generator prompt for this load |
+| Trash | Remove all boxes from the container |
+| Camera | Export the 3D view as PNG |
+| Print Report | Open the printable 2-page report |
+
+## Mouse and keyboard controls
+
+Click a box in the 3D view to select it, then:
+
+| Input | Action |
+|-------|--------|
+| Drag (empty space) | Orbit the camera |
+| Scroll | Zoom |
+| Arrow keys | Tip the selected box forward, backward, left or right |
+| Shift + Arrow | Spin the selected box 90° around the vertical axis |
+| Ctrl / Cmd + Arrow | Slide the selected box across the floor |
+| Delete / Backspace | Remove the selected box |
+| Esc | Deselect |
+| Shift + D | Show or hide the camera debug overlay (the green text box in the screenshots) |
+
+Rotations follow the product's constraints, so a This Side Up box will not tip over.
+
+---
+
+## Installation
+
+### Requirements
+
+- Node.js 18 or newer
+- MySQL 8 or MariaDB 10.4+
+
+### 1. Database
+
+Create the database and import the dump, which includes the tables, the four standard containers, sample products and the default admin user:
 
 ```bash
-# Create MySQL database
-mysql -u root -p < schmea.sql
-
-# Or create manually:
-CREATE DATABASE IF NOT EXISTS `easy-cargo` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS \`easy-cargo\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p easy-cargo < easy-cargo.sql
 ```
 
-Database credentials (update in `.env`):
-```
+Or start from an empty database and run `npm run seed` after step 2.
+
+### 2. Backend
+
+Create a `.env` file in the project root:
+
+```env
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=easy-cargo
 DB_USER=root
 DB_PASSWORD=
+PORT=5000
+NODE_ENV=development
+JWT_SECRET=change-this-to-a-long-random-string
+FRONTEND_URL=http://localhost:5000
 ```
-
-### 2. Backend Setup
 
 ```bash
-# Navigate to project root
-cd d:\Documents\easy-cargo-3d
-
-# Install dependencies
-npm install
-
-# Run database seed (creates tables & sample data)
-npm run seed
-
-# Start backend server (development)
-npm run dev
-
-# Or production:
-npm start
+npm install      # also installs frontend dependencies (postinstall)
+npm run seed     # optional: default admin, containers and sample products
+npm run dev      # or: npm start
 ```
 
-Backend runs on `http://localhost:5000`
-
-**Default Admin Credentials:**
-- Email: `admin@easycargo.local`
-- Password: `admin123`
-
-### 3. Frontend Setup
+### 3. Frontend
 
 ```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
-npm start
-
-# Or build for production:
-npm run build
+npm run build:frontend   # builds frontend/build, served by the backend
 ```
 
-Frontend runs on `http://localhost:3000`
+Open **http://localhost:5000**. The backend serves both the API (`/api`) and the built frontend.
 
-## API Endpoints
+Default login created by the seed and the SQL dump: `admin@easycargo.local` / `admin123`. Change it before using the app outside your own machine.
 
-### Products
-```
-GET    /api/products                 # Get all products
-GET    /api/products/grouped         # Get products by groups
-GET    /api/products/:id             # Get single product
-POST   /api/products                 # Create product
-PUT    /api/products/:id             # Update product
-DELETE /api/products/:id             # Delete product
-PUT    /api/products/bulk/quantities # Bulk update quantities
-POST   /api/products/groups          # Create product group
-PUT    /api/products/groups/:id      # Update product group
-```
-
-### Containers
-```
-GET    /api/containers               # Get all containers
-GET    /api/containers/system        # Get built-in containers
-GET    /api/containers/:id           # Get single container
-POST   /api/containers/custom        # Create custom container
-PUT    /api/containers/:id           # Update container
-DELETE /api/containers/:id           # Delete container
-```
-
-### Layouts
-```
-GET    /api/layouts                  # Get all layouts
-GET    /api/layouts/:id              # Get layout with items
-POST   /api/layouts                  # Create layout
-PUT    /api/layouts/:id              # Update layout
-DELETE /api/layouts/:id              # Delete layout
-POST   /api/layouts/:id/auto-pack    # Run auto packing algorithm
-POST   /api/layouts/:id/reset        # Clear all items
-GET    /api/layouts/:id/stats        # Get layout statistics
-POST   /api/layouts/:id/items        # Add item to layout
-PUT    /api/layouts/items/:itemId    # Update item position/rotation
-DELETE /api/layouts/items/:itemId    # Remove item from layout
-```
-
-## 3D Bin Packing Algorithm
-
-The system uses an **Empty Maximal Space (EMS)** heuristic:
-
-1. **Best-Fit Decreasing**: Items sorted by volume (largest first)
-2. **Orientation Selection**: Respects:
-   - `this_side_up` - No rotation on X/Z
-   - `rotation_allowed` - Can rotate on Y (vertical axis)
-3. **Space Management**: Maintains list of maximal free spaces
-4. **Constraints Checking**:
-   - Container boundaries
-   - Weight capacity
-   - Stackability rules
-   - Maximum stack height
-
-See `src/utils/binpacking.js` for implementation details.
-
-## State Management (Zustand)
-
-**PlannerStore tracks:**
-- Current layout & container selection
-- All layout items with positions/rotations
-- Product groups & containers
-- Undo/redo history (50 actions max)
-- UI state (panels, loading, etc.)
-
-Actions available:
-- `setCurrentLayout`, `setSelectedLayoutItem`
-- `addLayoutItem`, `updateLayoutItem`, `removeLayoutItem`
-- `pushToHistory`, `undo`, `redo`
-- `toggleLeftPanel`, `toggleRightPanel`
-
-## Component Structure
-
-### ContainerViewer3D
-- Main 3D viewer with Three.js
-- Container outline + grid
-- Interactive product boxes
-- Color-coded validity (green/red)
-
-### RightPanel
-- Container information
-- Live statistics dashboard
-- Volume & weight usage tracking
-- Progress visualization
-
-### ProductGroups
-- Left sidebar product list
-- Expandable groups
-- Color picker for groups
-- Auto-insert button per group
-
-### Toolbar
-- Undo/Redo buttons
-- Reset & Delete operations
-- Auto-pack trigger
-- Export PDF/PNG
-- Panel toggles
-
-### LeftPanel
-- Layout list browser
-- Create new layouts
-- Delete layouts
-- Status badges
-
-## Usage Guide
-
-### Creating a Layout
-
-1. Click **"New Layout"** in left panel
-2. Enter layout name
-3. Select container type (20'/40'/40'HC or custom)
-4. Click **"Create"**
-
-### Adding Products
-
-1. Navigate to **Products** section (bottom of left panel)
-2. Expand a product group
-3. See product list with quantities & attributes
-
-### Auto Packing
-
-**Option 1: Per Group**
-- Click ⚡ button on product group
-- All items in group auto-packed
-
-**Option 2: All Products**
-- Click ⚡ **Auto Pack** in toolbar
-- All products auto-packed into container
-
-### Manual Placement
-
-1. Select item in 3D viewer (green highlight)
-2. Drag to move (when implemented)
-3. Use right panel to see container space
-
-### Undo/Redo
-
-- Click ↶ **Undo** or ↷ **Redo** in toolbar
-- Up to 50 actions tracked
-- History resets on new layout
-
-### Exporting
-
-1. Click 📄 **Export PDF** for full report
-2. Click 📸 **Export PNG** for 3D screenshot
-3. Files saved to downloads
-
-## Roadmap / TODOs
-
-- [ ] Drag & drop implementation in 3D viewer
-- [ ] Snapping to grid
-- [ ] Collision detection improvements
-- [ ] Layer management for stacking
-- [ ] Print-friendly PDF reports with diagrams
-- [ ] Batch operations
-- [ ] Real-time collaboration
-- [ ] Odoo integration for product/order sync
-- [ ] Advanced packing algorithms (genetic algorithm)
-- [ ] Performance optimizations for large layouts
-
-## Technologies Used
-
-**Frontend:**
-- React 18 with TypeScript
-- React Three Fiber for 3D rendering
-- Three.js for WebGL
-- Zustand for state management
-- Tailwind CSS for styling
-- Lucide React for icons
-- Axios for API calls
-
-**Backend:**
-- Node.js + Express.js
-- Sequelize ORM
-- MySQL 8.0+
-- Helmet for security
-- CORS enabled
-
-**Development:**
-- Vite / Create React App
-- Nodemon for hot reload
-- ESLint + Prettier
-
-## Performance Considerations
-
-- **Large Layouts**: Bin packing optimized for 100+ items
-- **3D Rendering**: WebGL acceleration enabled
-- **Database**: Indexed queries on common filters
-- **API**: Pagination support for list endpoints
-- **History**: Limited to 50 items (configurable)
-
-## Security Notes
-
-- Passwords hashed with bcryptjs
-- CORS enabled for frontend origin
-- Helmet middleware for common vulnerabilities
-- Input validation on all endpoints
-- Database connection pooling enabled
-
-## Troubleshooting
-
-**Backend won't start:**
-```bash
-# Check database connection
-npm run seed
-
-# Verify .env is correct
-cat .env
-
-# Check port 5000 is available
-netstat -an | grep 5000
-```
-
-**Frontend showing blank screen:**
-```bash
-# Clear cache
-npm cache clean --force
-
-# Rebuild
-npm run build
-
-# Check console for errors
-# Open DevTools: F12
-```
-
-**Auto-pack not working:**
-- Ensure products have quantities > 0
-- Check product dimensions < container dimensions
-- Verify weight doesn't exceed capacity
-
-## Support & Documentation
-
-For issues or questions:
-1. Check error messages in browser console (F12)
-2. Check server logs: `npm run dev`
-3. Review API response in Network tab
-4. Check `.env` configuration
-
-## License
-
-MIT
+For frontend development with hot reload, run `npm start` inside `frontend/` (port 3000). Its `proxy` setting forwards API calls to port 5000.
 
 ---
 
-**Built with ❤️ for efficient container loading**
+## API endpoints
+
+All endpoints except `POST /api/auth/login` need `Authorization: Bearer <token>`.
+
+```
+Auth
+POST   /api/auth/login
+GET    /api/auth/me
+
+Projects
+GET    /api/projects
+POST   /api/projects/save
+GET    /api/projects/:id
+DELETE /api/projects/:id
+
+Containers
+GET    /api/containers
+GET    /api/containers/system
+GET    /api/containers/:id
+POST   /api/containers/custom
+PUT    /api/containers/:id
+DELETE /api/containers/:id
+
+Products
+GET    /api/products
+GET    /api/products/grouped
+GET    /api/products/:id
+POST   /api/products
+PUT    /api/products/:id
+DELETE /api/products/:id
+PUT    /api/products/bulk/quantities
+POST   /api/products/groups
+PUT    /api/products/groups/:id
+
+Layouts
+GET    /api/layouts
+GET    /api/layouts/:id
+POST   /api/layouts
+PUT    /api/layouts/:id
+DELETE /api/layouts/:id
+POST   /api/layouts/:id/auto-pack
+POST   /api/layouts/:id/reset
+GET    /api/layouts/:id/stats
+POST   /api/layouts/:id/items
+PUT    /api/layouts/items/:itemId
+DELETE /api/layouts/items/:itemId
+```
+
+---
+
+## Project structure
+
+```
+easy-cargo-3d/
+├── src/                      # Express backend
+│   ├── config/database.js    # Sequelize connection (reads .env)
+│   ├── models/               # Sequelize models
+│   ├── controllers/  routes/  services/  middleware/
+│   ├── utils/binpacking.js   # server-side packing
+│   ├── utils/seed.js         # default admin, containers, sample products
+│   └── server.js             # API + serves frontend/build
+├── frontend/                 # React + TypeScript app
+│   └── src/
+│       ├── components/       # LoginPage, LayoutSelector, Toolbar, ContainerViewer3D, ProductGroupManager, ContainerStatsOverlay
+│       ├── pages/PlannerPage.tsx
+│       ├── store/plannerStore.ts    # Zustand state, undo/redo, save/load
+│       ├── hooks/useAutoSave.ts     # auto-save every 2 minutes
+│       └── utils/            # binPacking, collisionDetection, aiPackService, aiImagePrompt, reportGenerator, exportUtils
+├── docs/screenshots/         # images used in this README
+├── easy-cargo.sql            # MySQL dump: schema + sample data
+└── package.json
+```
+
+### Packing algorithm
+
+Auto Pack (`frontend/src/utils/binPacking.ts`) uses an Empty Maximal Space (EMS) heuristic:
+
+1. Pieces are sorted largest first. Pieces marked Harus Di Atas are held back and placed last, at the highest available level.
+2. The free space inside the container is tracked as a list of empty boxes (maximal spaces); each piece goes into the best-fitting space and the list is updated.
+3. Only orientations allowed by This Side Up and Boleh Ditidurkan are tried.
+4. A piece is only placed above floor level on products marked Boleh Ditumpuk, and the total weight must stay within the container payload.
+
+The **Insert** button uses a separate placement routine that tries positions along the edges of boxes already placed, so single pieces sit tight from the front-left corner.
+
+---
+
+## Troubleshooting
+
+| Problem | Check |
+|---------|-------|
+| Server stops with a database error | MySQL is running and the `.env` values are correct |
+| Page says the frontend build is not found | Run `npm run build:frontend` |
+| Login fails | Import `easy-cargo.sql` or run `npm run seed` |
+| AI Pack asks for a key | Go back to Setup and enter a Gemini or OpenAI API key |
+| Some pieces are not loaded | Container full by volume or payload, or the constraints leave no valid position; the stats panel shows what is left |
+| 3D view is blank | The browser needs WebGL enabled |
+
+---
+
+Developed by [A Yazid Bustomi](https://www.yazid-bustomi.my.id/)

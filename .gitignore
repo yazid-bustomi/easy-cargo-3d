@@ -47,3 +47,7 @@ logs/
 # Package manager
 package-lock.json
 yarn.lock
+
+# Raw screenshots and exports; README images live in docs/screenshots/
+/Screenshot *.png
+/Container *-*.png
